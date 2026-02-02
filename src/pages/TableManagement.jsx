@@ -1,10 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 function TableManagement() {
     const [tables, setTables] = useState([]);
     const [showModal, setShowModal] = useState(false);
     const [editItem, setEditItem] = useState(null);
-    const [form, setForm] = useState({ table_number: '', capacity: 4, location: 'Indoor' });
+    const [form, setForm] = useState({ table_number: '', capacity: 4, location: 'Indoor', floor: 1 });
+    const [currentFloor, setCurrentFloor] = useState(1);
+    const containerRef = useRef(null);
+    const [isDragging, setIsDragging] = useState(false);
+    const [dragItem, setDragItem] = useState(null);
+    const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
     useEffect(() => { fetchData(); }, []);
     const fetchData = async () => { const res = await fetch('/api/tables/all'); setTables(await res.json()); };
@@ -13,11 +18,28 @@ function TableManagement() {
         e.preventDefault();
         const url = editItem ? `/api/tables/${editItem.id}` : '/api/tables';
         const method = editItem ? 'PUT' : 'POST';
-        await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+        // Use center of container for new tables if pos not set
+        const body = { ...form };
+        if (!editItem) {
+            body.position_x = 50;
+            body.position_y = 50;
+        }
+        await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         setShowModal(false); setEditItem(null); fetchData();
     };
 
-    const handleEdit = (item) => { setEditItem(item); setForm({ table_number: item.table_number, capacity: item.capacity, location: item.location || 'Indoor', status: item.status }); setShowModal(true); };
+    const handleEdit = (item) => {
+        setEditItem(item);
+        setForm({
+            table_number: item.table_number,
+            capacity: item.capacity,
+            location: item.location || 'Indoor',
+            floor: item.floor || 1,
+            status: item.status
+        });
+        setShowModal(true);
+    };
+
     const handleDelete = async (id) => { if (!confirm('Yakin hapus?')) return; await fetch(`/api/tables/${id}`, { method: 'DELETE' }); fetchData(); };
 
     const setStatus = async (item, status) => {
@@ -25,28 +47,111 @@ function TableManagement() {
         fetchData();
     };
 
+    const handleMouseDown = (e, table) => {
+        e.stopPropagation(); // Prevent triggering click on card
+        setIsDragging(true);
+        setDragItem(table);
+        // Calculate offset from mouse to element top-left
+        const rect = e.currentTarget.getBoundingClientRect();
+        setDragOffset({
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top
+        });
+    };
+
+    const handleMouseMove = (e) => {
+        if (!isDragging || !dragItem || !containerRef.current) return;
+
+        const containerRect = containerRef.current.getBoundingClientRect();
+        const x = e.clientX - containerRect.left - dragOffset.x;
+        const y = e.clientY - containerRect.top - dragOffset.y;
+
+        // Update local state for immediate feedback
+        setTables(tables.map(t => {
+            if (t.id === dragItem.id) {
+                return { ...t, position_x: x, position_y: y };
+            }
+            return t;
+        }));
+    };
+
+    const handleMouseUp = async () => {
+        if (!isDragging || !dragItem) return;
+
+        // Save new position
+        const currentTable = tables.find(t => t.id === dragItem.id);
+        if (currentTable) {
+            await fetch(`/api/tables/${currentTable.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(currentTable)
+            });
+        }
+
+        setIsDragging(false);
+        setDragItem(null);
+    };
+
+    const filteredTables = tables.filter(t => t.is_active && (t.floor || 1) === currentFloor);
+
     return (
-        <>
+        <div onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} style={{ height: '100%' }}>
             <div className="page-header flex justify-between items-center">
-                <div><h1 className="page-title">Manajemen Meja</h1><p className="page-subtitle">Atur meja restoran</p></div>
-                <button className="btn btn-primary" onClick={() => { setEditItem(null); setForm({ table_number: '', capacity: 4, location: 'Indoor' }); setShowModal(true); }}>+ Tambah Meja</button>
-            </div>
-            <div className="page-content">
-                <div className="stats-grid mb-lg">
-                    <div className="stat-card"><div className="stat-card-icon success">🟢</div><div className="stat-card-value">{tables.filter(t => t.status === 'available' && t.is_active).length}</div><div className="stat-card-label">Tersedia</div></div>
-                    <div className="stat-card"><div className="stat-card-icon warning">🟡</div><div className="stat-card-value">{tables.filter(t => t.status === 'reserved' && t.is_active).length}</div><div className="stat-card-label">Reserved</div></div>
-                    <div className="stat-card"><div className="stat-card-icon accent">🔴</div><div className="stat-card-value">{tables.filter(t => t.status === 'occupied' && t.is_active).length}</div><div className="stat-card-label">Terisi</div></div>
+                <div><h1 className="page-title">Manajemen Meja</h1><p className="page-subtitle">Atur posisi meja (Drag & Drop)</p></div>
+                <div className="flex gap-md">
+                    <div className="flex bg-tertiary rounded-lg p-1" style={{ background: 'var(--bg-tertiary)', padding: 4, borderRadius: 8 }}>
+                        <button className={`btn btn-sm ${currentFloor === 1 ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setCurrentFloor(1)}>Lantai 1</button>
+                        <button className={`btn btn-sm ${currentFloor === 2 ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setCurrentFloor(2)}>Lantai 2</button>
+                    </div>
+                    <button className="btn btn-primary" onClick={() => { setEditItem(null); setForm({ table_number: '', capacity: 4, location: 'Indoor', floor: currentFloor }); setShowModal(true); }}>+ Tambah Meja</button>
                 </div>
-                <div className="table-layout-grid">
-                    {tables.filter(t => t.is_active).map(t => (
-                        <div key={t.id} className={`table-card ${t.status}`} onClick={() => handleEdit(t)}>
-                            <div className="table-number">{t.table_number}</div>
-                            <div className="table-capacity">👥 {t.capacity} orang</div>
-                            <span className={`table-status badge ${t.status === 'available' ? 'badge-success' : t.status === 'occupied' ? 'badge-danger' : 'badge-warning'}`}>{t.status === 'available' ? 'Kosong' : t.status === 'occupied' ? 'Terisi' : 'Reserved'}</span>
+            </div>
+
+            <div className="page-content" style={{ height: 'calc(100vh - 180px)', overflow: 'hidden' }}>
+                <div
+                    ref={containerRef}
+                    style={{
+                        width: '100%',
+                        height: '100%',
+                        position: 'relative',
+                        background: 'var(--bg-card)',
+                        border: '1px dashed var(--border-primary)',
+                        borderRadius: '1rem',
+                        overflow: 'hidden'
+                    }}
+                >
+                    <div style={{ position: 'absolute', top: 10, left: 10, opacity: 0.5, pointerEvents: 'none' }}>
+                        <h3>Lantai {currentFloor}</h3>
+                        <p>Geser meja untuk mengatur posisi</p>
+                    </div>
+
+                    {filteredTables.map(t => (
+                        <div
+                            key={t.id}
+                            className={`table-card ${t.status}`}
+                            style={{
+                                position: 'absolute',
+                                left: t.position_x || 0,
+                                top: t.position_y || 0,
+                                width: 140,
+                                height: 140,
+                                cursor: isDragging ? 'grabbing' : 'grab',
+                                zIndex: dragItem?.id === t.id ? 10 : 1,
+                                boxShadow: dragItem?.id === t.id ? '0 10px 25px rgba(0,0,0,0.5)' : ''
+                            }}
+                            onMouseDown={(e) => handleMouseDown(e, t)}
+                        >
+                            <div className="flex justify-between w-full" style={{ marginBottom: '0.5rem' }}>
+                                <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>{t.location}</span>
+                                <button className="btn-icon" style={{ width: 20, height: 20, background: 'transparent', border: 'none', color: 'var(--text-muted)' }} onClick={(e) => { e.stopPropagation(); handleEdit(t); }}>✎</button>
+                            </div>
+                            <div className="table-number" style={{ fontSize: '2rem' }}>{t.table_number}</div>
+                            <div className="table-capacity">👥 {t.capacity} org</div>
+
                             <div className="flex gap-sm mt-md">
-                                <button className="btn btn-sm btn-success" onClick={e => { e.stopPropagation(); setStatus(t, 'available'); }}>🟢</button>
-                                <button className="btn btn-sm btn-warning" onClick={e => { e.stopPropagation(); setStatus(t, 'reserved'); }}>🟡</button>
-                                <button className="btn btn-sm btn-danger" onClick={e => { e.stopPropagation(); setStatus(t, 'occupied'); }}>🔴</button>
+                                <button className="btn btn-sm btn-success" style={{ padding: '2px 8px' }} onClick={e => { e.stopPropagation(); setStatus(t, 'available'); }} title="Available">✓</button>
+                                <button className="btn btn-sm btn-warning" style={{ padding: '2px 8px' }} onClick={e => { e.stopPropagation(); setStatus(t, 'reserved'); }} title="Reserved">R</button>
+                                <button className="btn btn-sm btn-danger" style={{ padding: '2px 8px' }} onClick={e => { e.stopPropagation(); setStatus(t, 'occupied'); }} title="Occupied">X</button>
                             </div>
                         </div>
                     ))}
@@ -59,7 +164,10 @@ function TableManagement() {
                         <div className="modal-header"><h3 className="modal-title">{editItem ? 'Edit' : 'Tambah'} Meja</h3><button className="modal-close" onClick={() => setShowModal(false)}>✕</button></div>
                         <form onSubmit={handleSubmit}>
                             <div className="modal-body">
-                                <div className="form-group"><label className="form-label">Nomor Meja *</label><input className="form-input" value={form.table_number} onChange={e => setForm({ ...form, table_number: e.target.value })} required /></div>
+                                <div className="grid-2">
+                                    <div className="form-group"><label className="form-label">Nomor Meja *</label><input className="form-input" value={form.table_number} onChange={e => setForm({ ...form, table_number: e.target.value })} required /></div>
+                                    <div className="form-group"><label className="form-label">Lantai</label><select className="form-input form-select" value={form.floor} onChange={e => setForm({ ...form, floor: parseInt(e.target.value) })}><option value="1">Lantai 1</option><option value="2">Lantai 2</option></select></div>
+                                </div>
                                 <div className="form-group"><label className="form-label">Kapasitas</label><input type="number" className="form-input" value={form.capacity} onChange={e => setForm({ ...form, capacity: parseInt(e.target.value) || 4 })} /></div>
                                 <div className="form-group"><label className="form-label">Lokasi</label><select className="form-input form-select" value={form.location} onChange={e => setForm({ ...form, location: e.target.value })}><option>Indoor</option><option>Outdoor</option><option>VIP</option><option>Rooftop</option></select></div>
                             </div>
@@ -72,7 +180,7 @@ function TableManagement() {
                     </div>
                 </div>
             )}
-        </>
+        </div>
     );
 }
 

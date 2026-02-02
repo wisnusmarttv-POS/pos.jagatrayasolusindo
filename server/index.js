@@ -94,6 +94,7 @@ async function initDatabase() {
         capacity INT DEFAULT 4,
         status VARCHAR(20) DEFAULT 'available',
         location VARCHAR(50),
+        floor INT DEFAULT 1,
         position_x INT DEFAULT 0,
         position_y INT DEFAULT 0,
         is_active BOOLEAN DEFAULT true,
@@ -527,8 +528,8 @@ app.post('/api/tables', async (req, res) => {
     try {
         const { table_number, capacity, location, position_x, position_y } = req.body;
         const result = await pool.query(
-            'INSERT INTO tables (table_number, capacity, location, position_x, position_y) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-            [table_number, capacity || 4, location, position_x || 0, position_y || 0]
+            'INSERT INTO tables (table_number, capacity, location, floor, position_x, position_y) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+            [table_number, capacity || 4, location, req.body.floor || 1, position_x || 0, position_y || 0]
         );
         res.json(result.rows[0]);
     } catch (err) {
@@ -541,9 +542,9 @@ app.put('/api/tables/:id', async (req, res) => {
         const { id } = req.params;
         const { table_number, capacity, status, location, position_x, position_y, is_active } = req.body;
         const result = await pool.query(
-            `UPDATE tables SET table_number = $1, capacity = $2, status = $3, location = $4, 
-       position_x = $5, position_y = $6, is_active = $7 WHERE id = $8 RETURNING *`,
-            [table_number, capacity, status, location, position_x, position_y, is_active, id]
+            `UPDATE tables SET table_number = $1, capacity = $2, status = $3, location = $4, floor = $5,
+       position_x = $6, position_y = $7, is_active = $8 WHERE id = $9 RETURNING *`,
+            [table_number, capacity, status, location, req.body.floor || 1, position_x, position_y, is_active, id]
         );
         res.json(result.rows[0]);
     } catch (err) {
