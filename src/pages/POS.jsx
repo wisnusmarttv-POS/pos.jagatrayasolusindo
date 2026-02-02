@@ -1,0 +1,302 @@
+import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+
+function POS() {
+    const [menuTypes, setMenuTypes] = useState([]);
+    const [menus, setMenus] = useState([]);
+    const [selectedType, setSelectedType] = useState(null);
+    const [cart, setCart] = useState([]);
+    const [tables, setTables] = useState([]);
+    const [selectedTable, setSelectedTable] = useState(null);
+    const [orderType, setOrderType] = useState('dine_in');
+    const [customerName, setCustomerName] = useState('');
+    const [showPayment, setShowPayment] = useState(false);
+    const [paymentMethods, setPaymentMethods] = useState([]);
+    const [discounts, setDiscounts] = useState([]);
+    const [selectedDiscount, setSelectedDiscount] = useState(null);
+    const [selectedPayment, setSelectedPayment] = useState(null);
+    const [paymentAmount, setPaymentAmount] = useState('');
+    const [settings, setSettings] = useState({});
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        fetchData();
+    }, []);
+
+    const fetchData = async () => {
+        const [typesRes, menusRes, tablesRes, pmRes, discRes, setRes] = await Promise.all([
+            fetch('/api/menu-types'), fetch('/api/menus?available=true'), fetch('/api/tables'),
+            fetch('/api/payment-methods'), fetch('/api/discounts'), fetch('/api/settings')
+        ]);
+        setMenuTypes(await typesRes.json());
+        setMenus(await menusRes.json());
+        setTables(await tablesRes.json());
+        setPaymentMethods(await pmRes.json());
+        setDiscounts(await discRes.json());
+        setSettings(await setRes.json());
+    };
+
+    const filteredMenus = selectedType ? menus.filter(m => m.menu_type_id === selectedType) : menus;
+
+    const addToCart = (menu) => {
+        if (!menu.is_available) return;
+        const existing = cart.find(c => c.menu_id === menu.id);
+        if (existing) {
+            setCart(cart.map(c => c.menu_id === menu.id ? { ...c, quantity: c.quantity + 1 } : c));
+        } else {
+            setCart([...cart, { menu_id: menu.id, menu_name: menu.name, unit_price: parseFloat(menu.price), quantity: 1 }]);
+        }
+    };
+
+    const updateQty = (menuId, delta) => {
+        setCart(cart.map(c => {
+            if (c.menu_id === menuId) {
+                const newQty = c.quantity + delta;
+                return newQty > 0 ? { ...c, quantity: newQty } : null;
+            }
+            return c;
+        }).filter(Boolean));
+    };
+
+    const removeItem = (menuId) => setCart(cart.filter(c => c.menu_id !== menuId));
+
+    const subtotal = cart.reduce((sum, c) => sum + c.unit_price * c.quantity, 0);
+    const taxRate = parseFloat(settings.tax_rate) || 11;
+    const serviceRate = settings.enable_service_charge === 'true' ? (parseFloat(settings.service_charge_rate) || 0) : 0;
+
+    let discountAmount = 0;
+    if (selectedDiscount) {
+        const disc = discounts.find(d => d.id === selectedDiscount);
+        if (disc && subtotal >= parseFloat(disc.min_order)) {
+            if (disc.type === 'percentage') {
+                discountAmount = subtotal * (parseFloat(disc.value) / 100);
+                if (disc.max_discount && discountAmount > parseFloat(disc.max_discount)) discountAmount = parseFloat(disc.max_discount);
+            } else {
+                discountAmount = parseFloat(disc.value);
+            }
+        }
+    }
+
+    const afterDiscount = subtotal - discountAmount;
+    const serviceCharge = afterDiscount * (serviceRate / 100);
+    const taxAmount = (afterDiscount + serviceCharge) * (taxRate / 100);
+    const grandTotal = afterDiscount + serviceCharge + taxAmount;
+    const changeAmount = parseFloat(paymentAmount || 0) - grandTotal;
+
+    const formatCurrency = (val) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(val || 0);
+
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+
+    const handleNewOrder = async () => {
+        if (cart.length === 0) return alert('Keranjang kosong!');
+        if (orderType === 'dine_in' && !selectedTable) return alert('Pilih meja!');
+        setLoading(true);
+        try {
+            const res = await fetch('/api/orders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    table_id: selectedTable, customer_name: customerName, order_type: orderType,
+                    items: cart, user_id: user.id
+                })
+            });
+            if (!res.ok) throw new Error('Gagal membuat order');
+            const order = await res.json();
+            setShowPayment(true);
+            window.currentOrderId = order.id;
+        } catch (err) {
+            alert(err.message);
+        }
+        setLoading(false);
+    };
+
+    const handlePayment = async () => {
+        if (!selectedPayment) return alert('Pilih metode pembayaran!');
+        if (parseFloat(paymentAmount || 0) < grandTotal) return alert('Jumlah bayar kurang!');
+        setLoading(true);
+        try {
+            const res = await fetch(`/api/orders/${window.currentOrderId}/pay`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    payment_method_id: selectedPayment, payment_amount: parseFloat(paymentAmount),
+                    discount_id: selectedDiscount
+                })
+            });
+            if (!res.ok) throw new Error('Gagal memproses pembayaran');
+            alert(`Pembayaran berhasil!\nKembalian: ${formatCurrency(changeAmount)}`);
+            resetOrder();
+            fetchData();
+        } catch (err) {
+            alert(err.message);
+        }
+        setLoading(false);
+    };
+
+    const resetOrder = () => {
+        setCart([]); setSelectedTable(null); setCustomerName(''); setSelectedDiscount(null);
+        setSelectedPayment(null); setPaymentAmount(''); setShowPayment(false);
+    };
+
+    return (
+        <>
+            <aside className="sidebar">
+                <div className="sidebar-header">
+                    <div className="sidebar-logo">
+                        <div className="sidebar-logo-icon">🍽️</div>
+                        <span className="sidebar-logo-text">JAGAT POS</span>
+                    </div>
+                </div>
+                <div style={{ padding: '1rem' }}>
+                    <Link to="/" className="btn btn-secondary w-full">← Kembali</Link>
+                </div>
+            </aside>
+
+            <div className="pos-layout">
+                <div className="pos-menu-section">
+                    <div className="menu-categories">
+                        <button className={`category-btn ${!selectedType ? 'active' : ''}`} onClick={() => setSelectedType(null)}>
+                            📋 Semua
+                        </button>
+                        {menuTypes.map(t => (
+                            <button key={t.id} className={`category-btn ${selectedType === t.id ? 'active' : ''}`} onClick={() => setSelectedType(t.id)}>
+                                {t.icon} {t.name}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="menu-grid">
+                        {filteredMenus.map(menu => (
+                            <div key={menu.id} className={`menu-item-card ${!menu.is_available ? 'unavailable' : ''}`} onClick={() => addToCart(menu)}>
+                                <div className="menu-item-image">
+                                    {menu.image_url ? <img src={menu.image_url} alt={menu.name} /> : '🍽️'}
+                                </div>
+                                <div className="menu-item-info">
+                                    <div className="menu-item-name">{menu.name}</div>
+                                    <div className="menu-item-price">{formatCurrency(menu.price)}</div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="pos-cart-section">
+                    <div className="pos-cart-header">
+                        <h3>Keranjang</h3>
+                        <div className="flex gap-sm mt-md">
+                            <button className={`btn btn-sm ${orderType === 'dine_in' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setOrderType('dine_in')}>Dine In</button>
+                            <button className={`btn btn-sm ${orderType === 'takeaway' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setOrderType('takeaway')}>Take Away</button>
+                        </div>
+                        {orderType === 'dine_in' && (
+                            <select className="form-input form-select mt-md" value={selectedTable || ''} onChange={e => setSelectedTable(parseInt(e.target.value))}>
+                                <option value="">-- Pilih Meja --</option>
+                                {tables.filter(t => t.status === 'available').map(t => (
+                                    <option key={t.id} value={t.id}>{t.table_number} ({t.capacity} org)</option>
+                                ))}
+                            </select>
+                        )}
+                        {orderType === 'takeaway' && (
+                            <input type="text" className="form-input mt-md" placeholder="Nama Customer" value={customerName} onChange={e => setCustomerName(e.target.value)} />
+                        )}
+                    </div>
+
+                    <div className="pos-cart-items">
+                        {cart.length === 0 ? (
+                            <div className="cart-empty">
+                                <div className="cart-empty-icon">🛒</div>
+                                <p>Keranjang kosong</p>
+                            </div>
+                        ) : (
+                            cart.map(item => (
+                                <div key={item.menu_id} className="cart-item">
+                                    <div className="cart-item-info">
+                                        <div className="cart-item-name">{item.menu_name}</div>
+                                        <div className="cart-item-price">{formatCurrency(item.unit_price)}</div>
+                                    </div>
+                                    <div className="cart-item-actions">
+                                        <button className="qty-btn" onClick={() => updateQty(item.menu_id, -1)}>−</button>
+                                        <span className="qty-value">{item.quantity}</span>
+                                        <button className="qty-btn" onClick={() => updateQty(item.menu_id, 1)}>+</button>
+                                    </div>
+                                    <div className="cart-item-subtotal">{formatCurrency(item.unit_price * item.quantity)}</div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+
+                    <div className="pos-cart-footer">
+                        <div className="cart-summary">
+                            <div className="cart-summary-row"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
+                            {discountAmount > 0 && <div className="cart-summary-row text-success"><span>Diskon</span><span>-{formatCurrency(discountAmount)}</span></div>}
+                            {serviceCharge > 0 && <div className="cart-summary-row"><span>Service ({serviceRate}%)</span><span>{formatCurrency(serviceCharge)}</span></div>}
+                            <div className="cart-summary-row"><span>PB1 ({taxRate}%)</span><span>{formatCurrency(taxAmount)}</span></div>
+                            <div className="cart-summary-row total"><span>Total</span><span className="value">{formatCurrency(grandTotal)}</span></div>
+                        </div>
+                        <button className="btn btn-success btn-lg w-full" onClick={handleNewOrder} disabled={loading || cart.length === 0}>
+                            {loading ? 'Memproses...' : '💳 Proses Pembayaran'}
+                        </button>
+                        {cart.length > 0 && <button className="btn btn-ghost w-full mt-md" onClick={resetOrder}>Batal</button>}
+                    </div>
+                </div>
+            </div>
+
+            {showPayment && (
+                <div className="modal-overlay">
+                    <div className="modal modal-lg">
+                        <div className="modal-header">
+                            <h3 className="modal-title">💳 Pembayaran</h3>
+                            <button className="modal-close" onClick={() => setShowPayment(false)}>✕</button>
+                        </div>
+                        <div className="modal-body">
+                            <div className="form-group">
+                                <label className="form-label">Diskon (Opsional)</label>
+                                <select className="form-input form-select" value={selectedDiscount || ''} onChange={e => setSelectedDiscount(e.target.value ? parseInt(e.target.value) : null)}>
+                                    <option value="">-- Tanpa Diskon --</option>
+                                    {discounts.filter(d => subtotal >= parseFloat(d.min_order)).map(d => (
+                                        <option key={d.id} value={d.id}>{d.name} ({d.type === 'percentage' ? `${d.value}%` : formatCurrency(d.value)})</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="cart-summary mb-lg">
+                                <div className="cart-summary-row"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
+                                {discountAmount > 0 && <div className="cart-summary-row text-success"><span>Diskon</span><span>-{formatCurrency(discountAmount)}</span></div>}
+                                {serviceCharge > 0 && <div className="cart-summary-row"><span>Service</span><span>{formatCurrency(serviceCharge)}</span></div>}
+                                <div className="cart-summary-row"><span>PB1</span><span>{formatCurrency(taxAmount)}</span></div>
+                                <div className="cart-summary-row total"><span>TOTAL</span><span className="value">{formatCurrency(grandTotal)}</span></div>
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Metode Pembayaran</label>
+                                <div className="payment-grid">
+                                    {paymentMethods.map(pm => (
+                                        <button key={pm.id} className={`payment-method-btn ${selectedPayment === pm.id ? 'active' : ''}`} onClick={() => setSelectedPayment(pm.id)}>{pm.name}</button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Jumlah Bayar</label>
+                                <input type="number" className="form-input" value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} placeholder="0" style={{ fontSize: '1.5rem', fontWeight: '700' }} />
+                                <div className="quick-amount-grid">
+                                    {[grandTotal, Math.ceil(grandTotal / 1000) * 1000, Math.ceil(grandTotal / 10000) * 10000, Math.ceil(grandTotal / 50000) * 50000, 100000, 200000].filter((v, i, a) => a.indexOf(v) === i).slice(0, 6).map(amt => (
+                                        <button key={amt} className="quick-amount-btn" onClick={() => setPaymentAmount(amt.toString())}>{formatCurrency(amt)}</button>
+                                    ))}
+                                </div>
+                            </div>
+                            {parseFloat(paymentAmount || 0) >= grandTotal && (
+                                <div className="cart-summary-row total" style={{ background: 'var(--success-500)', color: 'white', padding: '1rem', borderRadius: '0.5rem', marginTop: '1rem' }}>
+                                    <span>Kembalian</span><span>{formatCurrency(changeAmount)}</span>
+                                </div>
+                            )}
+                        </div>
+                        <div className="modal-footer">
+                            <button className="btn btn-secondary" onClick={() => setShowPayment(false)}>Batal</button>
+                            <button className="btn btn-success btn-lg" onClick={handlePayment} disabled={loading}>
+                                {loading ? 'Memproses...' : 'Bayar Sekarang'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </>
+    );
+}
+
+export default POS;
