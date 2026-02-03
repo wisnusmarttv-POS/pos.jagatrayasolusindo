@@ -562,6 +562,28 @@ app.delete('/api/tables/:id', async (req, res) => {
     }
 });
 
+app.post('/api/tables/bulk-update-positions', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const { tables } = req.body;
+        for (const table of tables) {
+            await client.query(
+                'UPDATE tables SET position_x = $1, position_y = $2 WHERE id = $3',
+                [table.position_x, table.position_y, table.id]
+            );
+        }
+        await client.query('COMMIT');
+        res.json({ success: true });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+
 // ============ DISCOUNTS ROUTES ============
 app.get('/api/discounts', async (req, res) => {
     try {

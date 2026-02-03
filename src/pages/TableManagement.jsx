@@ -10,23 +10,45 @@ function TableManagement() {
     const [isDragging, setIsDragging] = useState(false);
     const [dragItem, setDragItem] = useState(null);
     const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+    const [hasChanges, setHasChanges] = useState(false);
+    const [originalTables, setOriginalTables] = useState([]);
+
 
     useEffect(() => { fetchData(); }, []);
-    const fetchData = async () => { const res = await fetch('/api/tables/all'); setTables(await res.json()); };
+    const fetchData = async () => {
+        const res = await fetch('/api/tables/all');
+        const data = await res.json();
+        setTables(data);
+        setOriginalTables(JSON.parse(JSON.stringify(data)));
+        setHasChanges(false);
+    };
+
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         const url = editItem ? `/api/tables/${editItem.id}` : '/api/tables';
         const method = editItem ? 'PUT' : 'POST';
-        // Use center of container for new tables if pos not set
-        const body = { ...form };
+
+        const body = {
+            ...form,
+            is_active: editItem ? (editItem.is_active !== undefined ? editItem.is_active : true) : true
+        };
+
         if (!editItem) {
-            body.position_x = 50;
-            body.position_y = 50;
+            body.position_x = body.position_x || 50;
+            body.position_y = body.position_y || 50;
         }
-        await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        setShowModal(false); setEditItem(null); fetchData();
+
+        await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        setShowModal(false);
+        setEditItem(null);
+        fetchData();
     };
+
 
     const handleEdit = (item) => {
         setEditItem(item);
@@ -35,17 +57,30 @@ function TableManagement() {
             capacity: item.capacity,
             location: item.location || 'Indoor',
             floor: item.floor || 1,
-            status: item.status
+            status: item.status,
+            position_x: item.position_x,
+            position_y: item.position_y
         });
+
         setShowModal(true);
     };
 
     const handleDelete = async (id) => { if (!confirm('Yakin hapus?')) return; await fetch(`/api/tables/${id}`, { method: 'DELETE' }); fetchData(); };
 
     const setStatus = async (item, status) => {
-        await fetch(`/api/tables/${item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...item, status }) });
+        const body = {
+            ...item,
+            status,
+            is_active: item.is_active !== undefined ? item.is_active : true
+        };
+        await fetch(`/api/tables/${item.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
         fetchData();
     };
+
 
     const handleMouseDown = (e, table) => {
         e.stopPropagation(); // Prevent triggering click on card
@@ -73,24 +108,30 @@ function TableManagement() {
             }
             return t;
         }));
+        setHasChanges(true);
     };
 
-    const handleMouseUp = async () => {
-        if (!isDragging || !dragItem) return;
 
-        // Save new position
-        const currentTable = tables.find(t => t.id === dragItem.id);
-        if (currentTable) {
-            await fetch(`/api/tables/${currentTable.id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(currentTable)
-            });
-        }
-
+    const handleMouseUp = () => {
         setIsDragging(false);
         setDragItem(null);
     };
+
+    const handleSavePositions = async () => {
+        try {
+            await fetch('/api/tables/bulk-update-positions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tables })
+            });
+            alert('Posisi meja berhasil disimpan');
+            setOriginalTables(JSON.parse(JSON.stringify(tables)));
+            setHasChanges(false);
+        } catch (err) {
+            alert('Gagal menyimpan posisi: ' + err.message);
+        }
+    };
+
 
     const filteredTables = tables.filter(t => t.is_active && (t.floor || 1) === currentFloor);
 
@@ -99,12 +140,18 @@ function TableManagement() {
             <div className="page-header flex justify-between items-center">
                 <div><h1 className="page-title">Manajemen Meja</h1><p className="page-subtitle">Atur posisi meja (Drag & Drop)</p></div>
                 <div className="flex gap-md">
+                    {hasChanges && (
+                        <button className="btn btn-success" onClick={handleSavePositions}>
+                            💾 Simpan Posisi
+                        </button>
+                    )}
                     <div className="flex bg-tertiary rounded-lg p-1" style={{ background: 'var(--bg-tertiary)', padding: 4, borderRadius: 8 }}>
                         <button className={`btn btn-sm ${currentFloor === 1 ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setCurrentFloor(1)}>Lantai 1</button>
                         <button className={`btn btn-sm ${currentFloor === 2 ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setCurrentFloor(2)}>Lantai 2</button>
                     </div>
                     <button className="btn btn-primary" onClick={() => { setEditItem(null); setForm({ table_number: '', capacity: 4, location: 'Indoor', floor: currentFloor }); setShowModal(true); }}>+ Tambah Meja</button>
                 </div>
+
             </div>
 
             <div className="page-content" style={{ height: 'calc(100vh - 180px)', overflow: 'hidden' }}>
@@ -137,15 +184,48 @@ function TableManagement() {
                                 height: 140,
                                 cursor: isDragging ? 'grabbing' : 'grab',
                                 zIndex: dragItem?.id === t.id ? 10 : 1,
-                                boxShadow: dragItem?.id === t.id ? '0 10px 25px rgba(0,0,0,0.5)' : ''
+                                boxShadow: dragItem?.id === t.id ? '0 10px 25px rgba(0,0,0,0.5)' : '',
+                                border: (originalTables.find(ot => ot.id === t.id)?.position_x !== t.position_x ||
+                                    originalTables.find(ot => ot.id === t.id)?.position_y !== t.position_y)
+                                    ? '2px solid var(--success-color)' : '1px solid var(--border-primary)'
                             }}
+
                             onMouseDown={(e) => handleMouseDown(e, t)}
                         >
                             <div className="flex justify-between w-full" style={{ marginBottom: '0.5rem' }}>
                                 <span style={{ fontSize: '0.75rem', opacity: 0.7 }}>{t.location}</span>
-                                <button className="btn-icon" style={{ width: 20, height: 20, background: 'transparent', border: 'none', color: 'var(--text-muted)' }} onClick={(e) => { e.stopPropagation(); handleEdit(t); }}>✎</button>
+                                <button
+                                    className="btn-icon"
+                                    style={{
+                                        width: 32,
+                                        height: 32,
+                                        background: 'rgba(255,255,255,0.1)',
+                                        border: '1px solid rgba(255,255,255,0.2)',
+                                        color: 'var(--text-primary)',
+                                        borderRadius: '8px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: '1.2rem',
+                                        transition: 'all 0.2s ease',
+                                        cursor: 'pointer'
+                                    }}
+                                    onClick={(e) => { e.stopPropagation(); handleEdit(t); }}
+                                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
+                                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                                    title="Edit Meja"
+                                >
+                                    ✎
+                                </button>
                             </div>
-                            <div className="table-number" style={{ fontSize: '2rem' }}>{t.table_number}</div>
+                            <div
+                                className="table-number"
+                                style={{ fontSize: '2.5rem', cursor: 'pointer' }}
+                                onClick={(e) => { e.stopPropagation(); handleEdit(t); }}
+                            >
+                                {t.table_number}
+                            </div>
+
                             <div className="table-capacity">👥 {t.capacity} org</div>
 
                             <div className="flex gap-sm mt-md">
