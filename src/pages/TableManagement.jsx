@@ -98,8 +98,9 @@ function TableManagement() {
         if (!isDragging || !dragItem || !containerRef.current) return;
 
         const containerRect = containerRef.current.getBoundingClientRect();
-        const x = e.clientX - containerRect.left - dragOffset.x;
-        const y = e.clientY - containerRect.top - dragOffset.y;
+        const x = Math.round(e.clientX - containerRect.left - dragOffset.x);
+        const y = Math.round(e.clientY - containerRect.top - dragOffset.y);
+
 
         // Update local state for immediate feedback
         setTables(tables.map(t => {
@@ -119,11 +120,12 @@ function TableManagement() {
 
     const handleSavePositions = async () => {
         try {
-            await fetch('/api/tables/bulk-update-positions', {
+            const res = await fetch('/api/tables/bulk-update-positions', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ tables })
             });
+            if (!res.ok) throw new Error('Server error');
             alert('Posisi meja berhasil disimpan');
             setOriginalTables(JSON.parse(JSON.stringify(tables)));
             setHasChanges(false);
@@ -131,6 +133,7 @@ function TableManagement() {
             alert('Gagal menyimpan posisi: ' + err.message);
         }
     };
+
 
 
     const filteredTables = tables.filter(t => t.is_active && (t.floor || 1) === currentFloor);
@@ -141,14 +144,15 @@ function TableManagement() {
                 <div><h1 className="page-title">Manajemen Meja</h1><p className="page-subtitle">Atur posisi meja (Drag & Drop)</p></div>
                 <div className="flex gap-md">
                     {hasChanges && (
-                        <button className="btn btn-success" onClick={handleSavePositions}>
-                            💾 Simpan Posisi
+                        <button className="btn btn-success" onClick={handleSavePositions} style={{ padding: '8px 24px', fontSize: '1.1rem', fontWeight: 'bold', boxShadow: '0 0 15px var(--success-color)' }}>
+                            💾 SIMPAN POSISI MEJA
                         </button>
                     )}
                     <div className="flex bg-tertiary rounded-lg p-1" style={{ background: 'var(--bg-tertiary)', padding: 4, borderRadius: 8 }}>
-                        <button className={`btn btn-sm ${currentFloor === 1 ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setCurrentFloor(1)}>Lantai 1</button>
-                        <button className={`btn btn-sm ${currentFloor === 2 ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setCurrentFloor(2)}>Lantai 2</button>
+                        <button className={`btn btn-sm ${currentFloor === 1 ? 'btn-primary' : 'btn-ghost'}`} onClick={() => { if (hasChanges && !confirm('Ada perubahan yang belum disimpan. Pindah lantai anyway?')) return; setCurrentFloor(1); }}>Lantai 1</button>
+                        <button className={`btn btn-sm ${currentFloor === 2 ? 'btn-primary' : 'btn-ghost'}`} onClick={() => { if (hasChanges && !confirm('Ada perubahan yang belum disimpan. Pindah lantai anyway?')) return; setCurrentFloor(2); }}>Lantai 2</button>
                     </div>
+
                     <button className="btn btn-primary" onClick={() => { setEditItem(null); setForm({ table_number: '', capacity: 4, location: 'Indoor', floor: currentFloor }); setShowModal(true); }}>+ Tambah Meja</button>
                 </div>
 
@@ -197,22 +201,23 @@ function TableManagement() {
                                 <button
                                     className="btn-icon"
                                     style={{
-                                        width: 32,
-                                        height: 32,
-                                        background: 'rgba(255,255,255,0.1)',
-                                        border: '1px solid rgba(255,255,255,0.2)',
-                                        color: 'var(--text-primary)',
-                                        borderRadius: '8px',
+                                        width: 44,
+                                        height: 44,
+                                        background: 'var(--primary-color)',
+                                        border: '2px solid white',
+                                        color: 'white',
+                                        borderRadius: '12px',
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'center',
-                                        fontSize: '1.2rem',
+                                        fontSize: '1.5rem',
                                         transition: 'all 0.2s ease',
-                                        cursor: 'pointer'
+                                        cursor: 'pointer',
+                                        boxShadow: '0 4px 10px rgba(0,0,0,0.3)'
                                     }}
                                     onClick={(e) => { e.stopPropagation(); handleEdit(t); }}
-                                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
-                                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                                    onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
+                                    onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
                                     title="Edit Meja"
                                 >
                                     ✎
@@ -220,11 +225,12 @@ function TableManagement() {
                             </div>
                             <div
                                 className="table-number"
-                                style={{ fontSize: '2.5rem', cursor: 'pointer' }}
+                                style={{ fontSize: '2.8rem', cursor: 'pointer', fontWeight: 'bold' }}
                                 onClick={(e) => { e.stopPropagation(); handleEdit(t); }}
                             >
                                 {t.table_number}
                             </div>
+
 
                             <div className="table-capacity">👥 {t.capacity} org</div>
 
