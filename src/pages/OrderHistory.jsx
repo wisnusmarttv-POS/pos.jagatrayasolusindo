@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '../App';
 
 function OrderHistory() {
+    const { user } = useAuth();
     const [orders, setOrders] = useState([]);
     const [selectedOrder, setSelectedOrder] = useState(null);
     const [filter, setFilter] = useState({ status: '', date: '' });
@@ -116,7 +118,57 @@ function OrderHistory() {
                                 </>}
                             </div>
                         </div>
-                        <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setSelectedOrder(null)}>Tutup</button></div>
+                        <div className="modal-footer flex justify-between">
+                            <button className="btn btn-secondary" onClick={() => setSelectedOrder(null)}>Tutup</button>
+
+                            {/* Admin Actions */}
+                            {user?.role === 'admin' && (
+                                <div className="flex gap-sm">
+                                    {selectedOrder.status !== 'void' && selectedOrder.status !== 'cancelled' && (
+                                        <button
+                                            className="btn btn-warning"
+                                            onClick={async () => {
+                                                if (confirm('Yakin ingin membatalkan (VOID) transaksi ini?')) {
+                                                    const res = await fetch(`/api/orders/${selectedOrder.id}/void`, {
+                                                        method: 'PUT',
+                                                        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+                                                    });
+                                                    if (res.ok) {
+                                                        alert('Transaksi berhasil di-VOID');
+                                                        setSelectedOrder(null);
+                                                        fetchData();
+                                                    } else {
+                                                        alert('Gagal void transaksi');
+                                                    }
+                                                }
+                                            }}
+                                        >
+                                            VOID Transaksi
+                                        </button>
+                                    )}
+                                    <button
+                                        className="btn btn-danger"
+                                        onClick={async () => {
+                                            if (confirm('PERHATIAN: Transaksi akan DIHAPUS PERMANEN! Tindakan ini tidak dapat dibatalkan. Lanjutkan?')) {
+                                                const res = await fetch(`/api/orders/${selectedOrder.id}`, {
+                                                    method: 'DELETE',
+                                                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+                                                });
+                                                if (res.ok) {
+                                                    alert('Transaksi berhasil dihapus');
+                                                    setSelectedOrder(null);
+                                                    fetchData();
+                                                } else {
+                                                    alert('Gagal menghapus transaksi');
+                                                }
+                                            }
+                                        }}
+                                    >
+                                        HAPUS PERMANEN
+                                    </button>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             )}

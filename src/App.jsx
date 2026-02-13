@@ -63,8 +63,13 @@ function Login() {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    const [settings, setSettings] = useState({});
     const { login } = useAuth();
     const navigate = useNavigate();
+
+    useEffect(() => {
+        fetch('/api/settings').then(res => res.json()).then(setSettings).catch(err => console.error(err));
+    }, []);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -83,30 +88,35 @@ function Login() {
         <div className="login-page">
             <div className="login-card">
                 <div className="login-logo">
-                    <div className="login-logo-icon">🍽️</div>
-                    <div className="login-logo-text">JAGAT POS</div>
+                    {settings.restaurant_logo ? (
+                        <img src={settings.restaurant_logo} alt="Logo" className="login-logo-img" style={{ maxHeight: '80px', marginBottom: '1rem' }} />
+                    ) : (
+                        <div className="login-logo-icon">🍽️</div>
+                    )}
+                    <div className="login-logo-text">{settings.restaurant_name || 'JAGAT POS'}</div>
                 </div>
                 <div className="login-title">
-                    <h2>Selamat Datang</h2>
-                    <p>Silakan login untuk melanjutkan</p>
+                    <h2>Masuk</h2>
+                    <p>Silakan masuk untuk melanjutkan</p>
                 </div>
-                {error && <div className="login-error">{error}</div>}
+                {error && <div className="alert alert-danger">{error}</div>}
                 <form onSubmit={handleSubmit}>
                     <div className="form-group">
                         <label className="form-label">Username</label>
-                        <input type="text" className="form-input" value={username} onChange={e => setUsername(e.target.value)} placeholder="Masukkan username" required />
+                        <input className="form-input" value={username} onChange={e => setUsername(e.target.value)} required autoFocus />
                     </div>
                     <div className="form-group">
                         <label className="form-label">Password</label>
-                        <input type="password" className="form-input" value={password} onChange={e => setPassword(e.target.value)} placeholder="Masukkan password" required />
+                        <input type="password" className="form-input" value={password} onChange={e => setPassword(e.target.value)} required />
                     </div>
-                    <button type="submit" className="btn btn-primary btn-lg w-full" disabled={loading}>
-                        {loading ? 'Loading...' : 'Login'}
+                    <button type="submit" className="btn btn-primary w-full" disabled={loading}>
+                        {loading ? 'Memuat...' : 'Masuk'}
                     </button>
+                    <div className="text-center mt-md text-muted user-select-none">
+                        <small>Default: admin / admin123</small><br />
+                        <small>Kasir: kasir1 / kasir123</small>
+                    </div>
                 </form>
-                <p className="text-center text-muted mt-lg" style={{ fontSize: '0.75rem' }}>
-                    Default: admin / admin123
-                </p>
             </div>
         </div>
     );
@@ -117,6 +127,11 @@ function Sidebar() {
     const { user, logout } = useAuth();
     const location = useLocation();
     const navigate = useNavigate();
+    const [settings, setSettings] = useState({});
+
+    useEffect(() => {
+        fetch('/api/settings').then(res => res.json()).then(setSettings).catch(err => console.error(err));
+    }, []);
 
     const navItems = [
         { path: '/', icon: '📊', label: 'Dashboard' },
@@ -128,6 +143,7 @@ function Sidebar() {
     const masterItems = [
         { path: '/menus', icon: '🍽️', label: 'Menu' },
         { path: '/menu-types', icon: '📂', label: 'Tipe Menu' },
+        { path: '/units', icon: '⚖️', label: 'Satuan' },
         { path: '/discounts', icon: '🏷️', label: 'Diskon' },
     ];
 
@@ -142,8 +158,12 @@ function Sidebar() {
         <aside className="sidebar">
             <div className="sidebar-header">
                 <div className="sidebar-logo">
-                    <div className="sidebar-logo-icon">🍽️</div>
-                    <span className="sidebar-logo-text">JAGAT POS</span>
+                    {settings.restaurant_logo ? (
+                        <img src={settings.restaurant_logo} alt="Logo" style={{ maxHeight: '40px', marginRight: '0.5rem' }} />
+                    ) : (
+                        <div className="sidebar-logo-icon">🍽️</div>
+                    )}
+                    <span className="sidebar-logo-text">{settings.restaurant_name || 'JAGAT POS'}</span>
                 </div>
             </div>
             <nav className="sidebar-nav">
@@ -255,6 +275,7 @@ function MainLayout({ children }) {
 }
 
 // Lazy load pages
+// Lazy load pages (standard imports for now)
 import POS from './pages/POS.jsx';
 import MenuList from './pages/MenuList.jsx';
 import MenuTypeList from './pages/MenuTypeList.jsx';
@@ -263,6 +284,7 @@ import DiscountList from './pages/DiscountList.jsx';
 import OrderHistory from './pages/OrderHistory.jsx';
 import UserList from './pages/UserList.jsx';
 import Settings from './pages/Settings.jsx';
+import UnitManagement from './pages/UnitManagement.jsx';
 
 function App() {
     return (
@@ -274,6 +296,7 @@ function App() {
                     <Route path="/pos" element={<ProtectedRoute><POS /></ProtectedRoute>} />
                     <Route path="/menus" element={<ProtectedRoute><MainLayout><MenuList /></MainLayout></ProtectedRoute>} />
                     <Route path="/menu-types" element={<ProtectedRoute><MainLayout><MenuTypeList /></MainLayout></ProtectedRoute>} />
+                    <Route path="/units" element={<ProtectedRoute><MainLayout><UnitManagement /></MainLayout></ProtectedRoute>} />
                     <Route path="/tables" element={<ProtectedRoute><MainLayout><TableManagement /></MainLayout></ProtectedRoute>} />
                     <Route path="/discounts" element={<ProtectedRoute><MainLayout><DiscountList /></MainLayout></ProtectedRoute>} />
                     <Route path="/orders" element={<ProtectedRoute><MainLayout><OrderHistory /></MainLayout></ProtectedRoute>} />

@@ -224,19 +224,30 @@ async function initDatabase() {
 
         // Seed tables
         const tableCheck = await client.query("SELECT id FROM tables LIMIT 1");
+
+        // MIGRATION: Check if floor column exists
+        try {
+            await client.query("SELECT floor FROM tables LIMIT 1");
+        } catch (err) {
+            console.log('Adding missing floor column to tables...');
+            await client.query("ALTER TABLE tables ADD COLUMN IF NOT EXISTS floor INT DEFAULT 1");
+            await client.query("ALTER TABLE tables ADD COLUMN IF NOT EXISTS position_x INT DEFAULT 0");
+            await client.query("ALTER TABLE tables ADD COLUMN IF NOT EXISTS position_y INT DEFAULT 0");
+        }
+
         if (tableCheck.rows.length === 0) {
             await client.query(`
-        INSERT INTO tables (table_number, capacity, location, position_x, position_y) VALUES 
-        ('T01', 4, 'Indoor', 100, 100),
-        ('T02', 4, 'Indoor', 250, 100),
-        ('T03', 4, 'Indoor', 400, 100),
-        ('T04', 6, 'Indoor', 100, 250),
-        ('T05', 6, 'Indoor', 250, 250),
-        ('T06', 2, 'Outdoor', 400, 250),
-        ('T07', 2, 'Outdoor', 100, 400),
-        ('T08', 8, 'VIP', 250, 400),
-        ('T09', 4, 'Indoor', 400, 400),
-        ('T10', 4, 'Indoor', 550, 250)
+        INSERT INTO tables (table_number, capacity, location, floor, position_x, position_y) VALUES 
+        ('T01', 4, 'Indoor', 1, 100, 100),
+        ('T02', 4, 'Indoor', 1, 250, 100),
+        ('T03', 4, 'Indoor', 1, 400, 100),
+        ('T04', 6, 'Indoor', 1, 100, 250),
+        ('T05', 6, 'Indoor', 1, 250, 250),
+        ('T06', 2, 'Outdoor', 1, 400, 250),
+        ('T07', 2, 'Outdoor', 1, 100, 400),
+        ('T08', 8, 'VIP', 1, 250, 400),
+        ('T09', 4, 'Indoor', 1, 400, 400),
+        ('T10', 4, 'Indoor', 2, 550, 250)
       `);
         }
 
@@ -686,6 +697,27 @@ app.put('/api/settings', async (req, res) => {
     }
 });
 
+app.post('/api/settings/logo', upload.single('logo'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No logo file uploaded' });
+        }
+
+        const logoUrl = `/uploads/${req.file.filename}`;
+
+        // Update settings table
+        await pool.query(
+            `INSERT INTO settings (key, value) VALUES ('restaurant_logo', $1) 
+             ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+            [logoUrl]
+        );
+
+        res.json({ success: true, logo_url: logoUrl });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ============ ORDERS ROUTES ============
 async function generateOrderNumber() {
     const date = new Date();
@@ -793,8 +825,8 @@ app.post('/api/orders', async (req, res) => {
         // Create order
         const orderResult = await client.query(
             `INSERT INTO orders (order_number, table_id, user_id, customer_name, order_type, 
-       subtotal, tax_rate, tax_amount, service_charge_rate, service_charge, grand_total, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+               subtotal, tax_rate, tax_amount, service_charge_rate, service_charge, grand_total, notes)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
             [order_number, table_id, user_id, customer_name, order_type || 'dine_in',
                 subtotal, tax_rate, tax_amount, service_charge_rate, service_charge, grand_total, notes]
         );
@@ -805,7 +837,7 @@ app.post('/api/orders', async (req, res) => {
         for (const item of items) {
             await client.query(
                 `INSERT INTO order_items (order_id, menu_id, menu_name, quantity, unit_price, subtotal, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
                 [order.id, item.menu_id, item.menu_name, item.quantity, item.unit_price,
                 item.quantity * item.unit_price, item.notes]
             );
@@ -819,6 +851,55 @@ app.post('/api/orders', async (req, res) => {
         await client.query('COMMIT');
 
         res.json(order);
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// Endpoint VOID Order
+app.put('/api/orders/:id/void', authenticateToken, async (req, res) => {
+    // Hanya Admin yang boleh void
+    if (req.user.role !== 'admin') return res.sendStatus(403);
+
+    try {
+        const { id } = req.params;
+        const result = await pool.query(
+            "UPDATE orders SET status = 'void', updated_at = NOW() WHERE id = $1 RETURNING *",
+            [id]
+        );
+        if (result.rows.length === 0) return res.status(404).json({ error: 'Order not found' });
+        res.json(result.rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Endpoint DELETE Order
+app.delete('/api/orders/:id', authenticateToken, async (req, res) => {
+    // Hanya Admin yang boleh delete
+    if (req.user.role !== 'admin') return res.sendStatus(403);
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const { id } = req.params;
+
+        // Delete items first (cascade usually handles this but to be safe)
+        await client.query('DELETE FROM order_items WHERE order_id = $1', [id]);
+
+        // Delete order
+        const result = await client.query('DELETE FROM orders WHERE id = $1 RETURNING *', [id]);
+
+        if (result.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Order not found' });
+        }
+
+        await client.query('COMMIT');
+        res.json({ success: true });
     } catch (err) {
         await client.query('ROLLBACK');
         res.status(500).json({ error: err.message });
@@ -1169,6 +1250,107 @@ app.get('/api/dashboard/stats', async (req, res) => {
             available_tables: parseInt(availableTables.rows[0].count),
             occupied_tables: parseInt(occupiedTables.rows[0].count)
         });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Units API
+app.get('/api/units', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM units ORDER BY name ASC');
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/units', async (req, res) => {
+    try {
+        const { name, symbol, description } = req.body;
+        const result = await pool.query(
+            'INSERT INTO units (name, symbol, description) VALUES ($1, $2, $3) RETURNING *',
+            [name, symbol, description]
+        );
+        res.json(result.rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/units/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name, symbol, description } = req.body;
+        const result = await pool.query(
+            'UPDATE units SET name = $1, symbol = $2, description = $3 WHERE id = $4 RETURNING *',
+            [name, symbol, description, id]
+        );
+        res.json(result.rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/units/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        await pool.query('DELETE FROM units WHERE id = $1', [id]);
+        res.json({ message: 'Unit deleted' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Unit Conversions API
+app.get('/api/unit-conversions', async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT uc.*, u1.name as from_unit_name, u1.symbol as from_unit_symbol, 
+                   u2.name as to_unit_name, u2.symbol as to_unit_symbol
+            FROM unit_conversions uc
+            JOIN units u1 ON uc.from_unit_id = u1.id
+            JOIN units u2 ON uc.to_unit_id = u2.id
+            ORDER BY u1.name ASC
+        `);
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/unit-conversions', async (req, res) => {
+    try {
+        const { from_unit_id, to_unit_id, factor } = req.body;
+        const result = await pool.query(
+            'INSERT INTO unit_conversions (from_unit_id, to_unit_id, factor) VALUES ($1, $2, $3) RETURNING *',
+            [from_unit_id, to_unit_id, factor]
+        );
+        res.json(result.rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/unit-conversions/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { from_unit_id, to_unit_id, factor } = req.body;
+        const result = await pool.query(
+            'UPDATE unit_conversions SET from_unit_id = $1, to_unit_id = $2, factor = $3 WHERE id = $4 RETURNING *',
+            [from_unit_id, to_unit_id, factor, id]
+        );
+        res.json(result.rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/unit-conversions/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        await pool.query('DELETE FROM unit_conversions WHERE id = $1', [id]);
+        res.json({ message: 'Conversion deleted' });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

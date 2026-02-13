@@ -145,8 +145,12 @@ function POS() {
             <aside className="sidebar">
                 <div className="sidebar-header">
                     <div className="sidebar-logo">
-                        <div className="sidebar-logo-icon">🍽️</div>
-                        <span className="sidebar-logo-text">JAGAT POS</span>
+                        {settings.restaurant_logo ? (
+                            <img src={settings.restaurant_logo} alt="Logo" style={{ height: 40, width: 40, objectFit: 'contain', marginRight: 10 }} />
+                        ) : (
+                            <div className="sidebar-logo-icon">🍽️</div>
+                        )}
+                        <span className="sidebar-logo-text">{settings.restaurant_name || 'JAGAT POS'}</span>
                     </div>
                 </div>
                 <div style={{ padding: '1rem' }}>

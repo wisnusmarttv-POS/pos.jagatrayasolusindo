@@ -29,6 +29,43 @@ function Settings() {
                         <div className="card-body">
                             <div className="form-group"><label className="form-label">Nama Restoran</label><input className="form-input" value={settings.restaurant_name || ''} onChange={e => updateSetting('restaurant_name', e.target.value)} /></div>
                             <div className="form-group"><label className="form-label">Footer Struk</label><textarea className="form-input form-textarea" value={settings.receipt_footer || ''} onChange={e => updateSetting('receipt_footer', e.target.value)} /></div>
+
+                            <div className="form-group mt-md">
+                                <label className="form-label">Logo Restoran</label>
+                                <div className="flex items-center gap-md">
+                                    {settings.restaurant_logo && (
+                                        <div className="logo-preview mb-sm">
+                                            <img src={settings.restaurant_logo} alt="Logo" style={{ maxHeight: '80px', maxWidth: '100%' }} />
+                                        </div>
+                                    )}
+                                    <input
+                                        type="file"
+                                        className="form-input"
+                                        accept="image/*"
+                                        onChange={async (e) => {
+                                            const file = e.target.files[0];
+                                            if (!file) return;
+
+                                            const formData = new FormData();
+                                            formData.append('logo', file);
+
+                                            try {
+                                                const res = await fetch('/api/settings/logo', {
+                                                    method: 'POST',
+                                                    body: formData
+                                                });
+                                                if (!res.ok) throw new Error('Gagal upload logo');
+                                                const data = await res.json();
+                                                updateSetting('restaurant_logo', data.logo_url);
+                                                alert('Logo berhasil diupload!');
+                                            } catch (err) {
+                                                alert(err.message);
+                                            }
+                                        }}
+                                    />
+                                </div>
+                                <small className="text-muted">Format: JPG, PNG. Maks: 2MB.</small>
+                            </div>
                         </div>
                     </div>
 

@@ -131,3 +131,22 @@ CREATE INDEX IF NOT EXISTS idx_orders_date ON orders(order_date);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_table ON orders(table_id);
 CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
+
+-- Units (Satuan)
+CREATE TABLE IF NOT EXISTS units (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(50) NOT NULL,
+    symbol VARCHAR(20) NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Unit Conversions (Konversi Satuan)
+CREATE TABLE IF NOT EXISTS unit_conversions (
+    id SERIAL PRIMARY KEY,
+    from_unit_id INT REFERENCES units(id) ON DELETE CASCADE,
+    to_unit_id INT REFERENCES units(id) ON DELETE CASCADE,
+    factor DECIMAL(15,4) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_conversion UNIQUE (from_unit_id, to_unit_id)
+);
