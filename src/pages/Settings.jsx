@@ -36,7 +36,24 @@ function Settings() {
                     <div className="card">
                         <div className="card-header"><h3 className="card-title">🏪 Informasi Restoran</h3></div>
                         <div className="card-body">
-                            <div className="form-group"><label className="form-label">Nama Restoran</label><input className="form-input" value={settings.restaurant_name || ''} onChange={e => updateSetting('restaurant_name', e.target.value)} /></div>
+                            <div className="form-group">
+                                <label className="form-label">Nama Restoran (Sidebar)</label>
+                                <input className="form-input" value={settings.restaurant_name || ''} onChange={e => updateSetting('restaurant_name', e.target.value)} />
+                                <div className="flex items-center gap-sm mt-sm">
+                                    <label className="form-label" style={{ marginBottom: 0, whiteSpace: 'nowrap', fontSize: '0.8rem' }}>Ukuran Font (px)</label>
+                                    <input type="number" className="form-input" style={{ width: 80 }} min="10" max="48" value={settings.restaurant_name_font_size || ''} onChange={e => updateSetting('restaurant_name_font_size', e.target.value)} placeholder="24" />
+                                </div>
+                                <small className="text-muted">Tampil di samping logo sidebar</small>
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Nama Restoran (Header)</label>
+                                <input className="form-input" value={settings.restaurant_name_header || ''} onChange={e => updateSetting('restaurant_name_header', e.target.value)} />
+                                <div className="flex items-center gap-sm mt-sm">
+                                    <label className="form-label" style={{ marginBottom: 0, whiteSpace: 'nowrap', fontSize: '0.8rem' }}>Ukuran Font (px)</label>
+                                    <input type="number" className="form-input" style={{ width: 80 }} min="10" max="48" value={settings.restaurant_name_header_font_size || ''} onChange={e => updateSetting('restaurant_name_header_font_size', e.target.value)} placeholder="18" />
+                                </div>
+                                <small className="text-muted">Tampil di tengah atas halaman</small>
+                            </div>
                             <div className="form-group"><label className="form-label">Alamat</label><textarea className="form-input form-textarea" value={settings.restaurant_address || ''} onChange={e => updateSetting('restaurant_address', e.target.value)} rows={2} /></div>
                             <div className="form-group"><label className="form-label">No. Telepon</label><input className="form-input" value={settings.restaurant_phone || ''} onChange={e => updateSetting('restaurant_phone', e.target.value)} /></div>
                             <div className="form-group"><label className="form-label">Footer Struk</label><textarea className="form-input form-textarea" value={settings.receipt_footer || ''} onChange={e => updateSetting('receipt_footer', e.target.value)} /></div>

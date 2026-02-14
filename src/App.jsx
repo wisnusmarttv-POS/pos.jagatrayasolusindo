@@ -161,7 +161,7 @@ function Sidebar() {
                     ) : (
                         <div className="sidebar-logo-icon">🍽️</div>
                     )}
-                    <span className="sidebar-logo-text">{settings.restaurant_name || 'JAGAT POS'}</span>
+                    <span className="sidebar-logo-text" style={settings.restaurant_name_font_size ? { fontSize: settings.restaurant_name_font_size + 'px' } : undefined}>{settings.restaurant_name || 'JAGAT POS'}</span>
                 </div>
             </div>
             <nav className="sidebar-nav">
@@ -267,10 +267,16 @@ function Dashboard() {
 
 // Main Layout
 function MainLayout({ children }) {
+    const { settings } = useAuth();
     return (
         <div className="app">
             <Sidebar />
-            <main className="main-content">{children}</main>
+            <main className="main-content">
+                <div className="main-top-bar">
+                    <span className="main-top-bar-name" style={settings.restaurant_name_header_font_size ? { fontSize: settings.restaurant_name_header_font_size + 'px' } : undefined}>{settings.restaurant_name_header || settings.restaurant_name || 'JAGAT POS'}</span>
+                </div>
+                {children}
+            </main>
         </div>
     );
 }
