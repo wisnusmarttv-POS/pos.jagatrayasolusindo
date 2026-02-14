@@ -1,9 +1,11 @@
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import pg from 'pg';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
+import sharp from 'sharp';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -17,8 +19,9 @@ const JWT_SECRET = process.env.JWT_SECRET || 'jagat-pos-secret-key-2024';
 
 // Middleware
 app.use(cors());
+app.use(compression());
 app.use(express.json());
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads'), { maxAge: '1d' }));
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, '../uploads');
@@ -37,6 +40,39 @@ const storage = multer.diskStorage({
     }
 });
 const upload = multer({ storage });
+
+// Compress uploaded image using sharp
+async function compressImage(filePath, maxWidth = 800, quality = 80) {
+    try {
+        const ext = path.extname(filePath).toLowerCase();
+        if (!['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) return path.basename(filePath);
+
+        const dir = path.dirname(filePath);
+        const baseName = path.basename(filePath, ext);
+        const tempPath = path.join(dir, baseName + '_compressed.jpg');
+
+        const originalSize = fs.statSync(filePath).size;
+
+        await sharp(filePath)
+            .resize(maxWidth, null, { withoutEnlargement: true, fit: 'inside' })
+            .jpeg({ quality, mozjpeg: true })
+            .toFile(tempPath);
+
+        const compressedSize = fs.statSync(tempPath).size;
+        console.log(`Image compressed: ${(originalSize / 1024).toFixed(0)}KB → ${(compressedSize / 1024).toFixed(0)}KB (${((1 - compressedSize / originalSize) * 100).toFixed(0)}% smaller)`);
+
+        // Remove original and rename compressed
+        fs.unlinkSync(filePath);
+        const finalName = baseName + '.jpg';
+        const finalPath = path.join(dir, finalName);
+        fs.renameSync(tempPath, finalPath);
+
+        return finalName;
+    } catch (err) {
+        console.error('Image compression failed:', err.message);
+        return path.basename(filePath); // fallback to original
+    }
+}
 
 // PostgreSQL connection
 const pool = new pg.Pool({
@@ -82,6 +118,9 @@ async function initDatabase() {
         image_url TEXT,
         menu_type_id INT REFERENCES menu_types(id),
         price DECIMAL(15,2) NOT NULL DEFAULT 0,
+        is_promo BOOLEAN DEFAULT false,
+        promo_price DECIMAL(15,2) DEFAULT 0,
+        discount_percent DECIMAL(5,2) DEFAULT 0,
         is_available BOOLEAN DEFAULT true,
         is_active BOOLEAN DEFAULT true,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -300,6 +339,15 @@ async function initDatabase() {
       `);
         }
 
+        // Create indexes for performance
+        await client.query(`
+            CREATE INDEX IF NOT EXISTS idx_orders_status_date ON orders(status, order_date);
+            CREATE INDEX IF NOT EXISTS idx_orders_table_id ON orders(table_id);
+            CREATE INDEX IF NOT EXISTS idx_menus_type_active ON menus(menu_type_id, is_active);
+            CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
+            CREATE INDEX IF NOT EXISTS idx_tables_status_active ON tables(status, is_active);
+        `);
+
         console.log('Database initialized successfully');
     } catch (err) {
         console.error('Database initialization error:', err);
@@ -379,6 +427,7 @@ app.get('/api/menu-types', async (req, res) => {
         const result = await pool.query(
             'SELECT * FROM menu_types WHERE is_active = true ORDER BY sort_order'
         );
+        res.set('Cache-Control', 'public, max-age=60');
         res.json(result.rows);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -477,12 +526,16 @@ app.get('/api/menus/all', async (req, res) => {
 
 app.post('/api/menus', upload.single('image'), async (req, res) => {
     try {
-        const { code, name, description, menu_type_id, price, unit_id } = req.body;
-        const image_url = req.file ? `/uploads/${req.file.filename}` : null;
+        const { code, name, description, menu_type_id, price, unit_id, is_promo, promo_price, discount_percent } = req.body;
+        let image_url = null;
+        if (req.file) {
+            const compressedName = await compressImage(req.file.path);
+            image_url = `/uploads/${compressedName}`;
+        }
 
         const result = await pool.query(
-            'INSERT INTO menus (code, name, description, image_url, menu_type_id, price, unit_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
-            [code, name, description, image_url, menu_type_id, price, unit_id || null]
+            'INSERT INTO menus (code, name, description, image_url, menu_type_id, price, unit_id, is_promo, promo_price, discount_percent) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *',
+            [code, name, description, image_url, menu_type_id, price, unit_id || null, is_promo === 'true' || is_promo === true, promo_price || 0, discount_percent || 0]
         );
         res.json(result.rows[0]);
     } catch (err) {
@@ -493,20 +546,23 @@ app.post('/api/menus', upload.single('image'), async (req, res) => {
 app.put('/api/menus/:id', upload.single('image'), async (req, res) => {
     try {
         const { id } = req.params;
-        const { code, name, description, menu_type_id, price, is_available, is_active, unit_id } = req.body;
+        const { code, name, description, menu_type_id, price, is_available, is_active, unit_id, is_promo, promo_price, discount_percent } = req.body;
 
         let image_url = req.body.image_url;
         if (req.file) {
-            image_url = `/uploads/${req.file.filename}`;
+            const compressedName = await compressImage(req.file.path);
+            image_url = `/uploads/${compressedName}`;
         }
 
         const result = await pool.query(
             `UPDATE menus SET code = $1, name = $2, description = $3, image_url = $4, 
-       menu_type_id = $5, price = $6, is_available = $7, is_active = $8, unit_id = $9, updated_at = NOW() 
-       WHERE id = $10 RETURNING *`,
+       menu_type_id = $5, price = $6, is_available = $7, is_active = $8, unit_id = $9, 
+       is_promo = $10, promo_price = $11, discount_percent = $12, updated_at = NOW() 
+       WHERE id = $13 RETURNING *`,
             [code, name, description, image_url, menu_type_id, price,
                 is_available !== undefined ? is_available : true,
-                is_active !== undefined ? is_active : true, unit_id || null, id]
+                is_active !== undefined ? is_active : true, unit_id || null,
+                is_promo === 'true' || is_promo === true, promo_price || 0, discount_percent || 0, id]
         );
         res.json(result.rows[0]);
     } catch (err) {
@@ -671,6 +727,7 @@ app.get('/api/payment-methods', async (req, res) => {
         const result = await pool.query(
             'SELECT * FROM payment_methods WHERE is_active = true ORDER BY sort_order'
         );
+        res.set('Cache-Control', 'public, max-age=120');
         res.json(result.rows);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -685,6 +742,7 @@ app.get('/api/settings', async (req, res) => {
         result.rows.forEach(row => {
             settings[row.key] = row.value;
         });
+        res.set('Cache-Control', 'public, max-age=30');
         res.json(settings);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -713,7 +771,8 @@ app.post('/api/settings/logo', upload.single('logo'), async (req, res) => {
             return res.status(400).json({ error: 'No logo file uploaded' });
         }
 
-        const logoUrl = `/uploads/${req.file.filename}`;
+        const compressedName = await compressImage(req.file.path, 400, 85);
+        const logoUrl = `/uploads/${compressedName}`;
 
         // Update settings table
         await pool.query(
@@ -739,6 +798,75 @@ async function generateOrderNumber() {
     const count = parseInt(result.rows[0].count) + 1;
     return `${prefix}${String(count).padStart(4, '0')}`;
 }
+
+// Daily Sales Report API
+app.get('/api/reports/daily-sales', async (req, res) => {
+    try {
+        const { date } = req.query;
+        const reportDate = date || new Date().toISOString().split('T')[0];
+
+        // Summary totals
+        const summaryResult = await pool.query(`
+            SELECT 
+                COUNT(*) as total_orders,
+                COALESCE(SUM(grand_total), 0) as total_revenue,
+                COALESCE(SUM(subtotal), 0) as total_subtotal,
+                COALESCE(SUM(discount_amount), 0) as total_discount,
+                COALESCE(SUM(tax_amount), 0) as total_tax,
+                COALESCE(SUM(service_charge), 0) as total_service
+            FROM orders 
+            WHERE DATE(order_date) = $1 AND status = 'paid'
+        `, [reportDate]);
+
+        // Per payment method breakdown
+        const paymentResult = await pool.query(`
+            SELECT 
+                pm.name as payment_method,
+                COUNT(*) as count,
+                COALESCE(SUM(o.grand_total), 0) as total
+            FROM orders o
+            LEFT JOIN payment_methods pm ON o.payment_method_id = pm.id
+            WHERE DATE(o.order_date) = $1 AND o.status = 'paid'
+            GROUP BY pm.name
+            ORDER BY total DESC
+        `, [reportDate]);
+
+        // Per order type breakdown
+        const orderTypeResult = await pool.query(`
+            SELECT 
+                order_type,
+                COUNT(*) as count,
+                COALESCE(SUM(grand_total), 0) as total
+            FROM orders 
+            WHERE DATE(order_date) = $1 AND status = 'paid'
+            GROUP BY order_type
+            ORDER BY total DESC
+        `, [reportDate]);
+
+        // Individual orders list
+        const ordersResult = await pool.query(`
+            SELECT o.order_number, o.order_type, o.customer_name, o.grand_total, o.subtotal,
+                   o.discount_amount, o.tax_amount, o.service_charge, o.order_date,
+                   pm.name as payment_method, u.full_name as cashier_name, t.table_number
+            FROM orders o
+            LEFT JOIN payment_methods pm ON o.payment_method_id = pm.id
+            LEFT JOIN users u ON o.user_id = u.id
+            LEFT JOIN tables t ON o.table_id = t.id
+            WHERE DATE(o.order_date) = $1 AND o.status = 'paid'
+            ORDER BY o.order_date ASC
+        `, [reportDate]);
+
+        res.json({
+            date: reportDate,
+            summary: summaryResult.rows[0],
+            payment_breakdown: paymentResult.rows,
+            order_type_breakdown: orderTypeResult.rows,
+            orders: ordersResult.rows
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 app.get('/api/orders', async (req, res) => {
     try {
@@ -1231,34 +1359,32 @@ app.put('/api/users/:id', async (req, res) => {
     }
 });
 
-// Dashboard stats
+// Dashboard stats — single combined query for performance
 app.get('/api/dashboard/stats', async (req, res) => {
     try {
         const today = new Date().toISOString().split('T')[0];
 
-        const todaySales = await pool.query(
-            "SELECT COALESCE(SUM(grand_total), 0) as total, COUNT(*) as count FROM orders WHERE status = 'paid' AND DATE(order_date) = $1",
-            [today]
-        );
+        const result = await pool.query(`
+            SELECT
+                COALESCE(SUM(CASE WHEN o.status = 'paid' AND DATE(o.order_date) = $1 THEN o.grand_total END), 0) as today_sales,
+                COUNT(CASE WHEN o.status = 'paid' AND DATE(o.order_date) = $1 THEN 1 END) as today_orders,
+                COUNT(CASE WHEN o.status = 'open' THEN 1 END) as open_orders
+            FROM orders o
+        `, [today]);
 
-        const openOrders = await pool.query(
-            "SELECT COUNT(*) as count FROM orders WHERE status = 'open'"
-        );
-
-        const availableTables = await pool.query(
-            "SELECT COUNT(*) as count FROM tables WHERE status = 'available' AND is_active = true"
-        );
-
-        const occupiedTables = await pool.query(
-            "SELECT COUNT(*) as count FROM tables WHERE status = 'occupied' AND is_active = true"
-        );
+        const tableResult = await pool.query(`
+            SELECT
+                COUNT(CASE WHEN status = 'available' THEN 1 END) as available_tables,
+                COUNT(CASE WHEN status = 'occupied' THEN 1 END) as occupied_tables
+            FROM tables WHERE is_active = true
+        `);
 
         res.json({
-            today_sales: parseFloat(todaySales.rows[0].total),
-            today_orders: parseInt(todaySales.rows[0].count),
-            open_orders: parseInt(openOrders.rows[0].count),
-            available_tables: parseInt(availableTables.rows[0].count),
-            occupied_tables: parseInt(occupiedTables.rows[0].count)
+            today_sales: parseFloat(result.rows[0].today_sales),
+            today_orders: parseInt(result.rows[0].today_orders),
+            open_orders: parseInt(result.rows[0].open_orders),
+            available_tables: parseInt(tableResult.rows[0].available_tables),
+            occupied_tables: parseInt(tableResult.rows[0].occupied_tables)
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -1351,6 +1477,61 @@ app.put('/api/unit-conversions/:id', async (req, res) => {
             [from_unit_id, to_unit_id, factor, id]
         );
         res.json(result.rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Settings API
+app.get('/api/settings', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT key, value FROM settings');
+        const settings = result.rows.reduce((acc, row) => {
+            acc[row.key] = row.value;
+            return acc;
+        }, {});
+        res.json(settings);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/settings', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const settings = req.body;
+        for (const [key, value] of Object.entries(settings)) {
+            await client.query(
+                `INSERT INTO settings (key, value) VALUES ($1, $2) 
+                 ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
+                [key, String(value)]
+            );
+        }
+        await client.query('COMMIT');
+        res.json({ success: true });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        res.status(500).json({ error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+app.post('/api/settings/logo', upload.single('logo'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+        const compressedName = await compressImage(req.file.path);
+        const logoUrl = `/uploads/${compressedName}`;
+
+        await pool.query(
+            `INSERT INTO settings (key, value) VALUES ('restaurant_logo', $1) 
+             ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+            [logoUrl]
+        );
+
+        res.json({ logo_url: logoUrl });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

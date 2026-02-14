@@ -6,7 +6,7 @@ function MenuList() {
     const [units, setUnits] = useState([]);
     const [showModal, setShowModal] = useState(false);
     const [editItem, setEditItem] = useState(null);
-    const [form, setForm] = useState({ code: '', name: '', description: '', menu_type_id: '', price: '', unit_id: '', image: null, image_url: null, is_available: true });
+    const [form, setForm] = useState({ code: '', name: '', description: '', menu_type_id: '', price: '', unit_id: '', image: null, image_url: null, is_available: true, is_promo: false, promo_price: '', discount_percent: '' });
     const [searchTerm, setSearchTerm] = useState('');
     const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
 
@@ -42,8 +42,12 @@ function MenuList() {
 
         const url = editItem ? `/api/menus/${editItem.id}` : '/api/menus';
         const method = editItem ? 'PUT' : 'POST';
-        await fetch(url, { method, body: formData });
-        setShowModal(false); setEditItem(null); setForm({ code: '', name: '', description: '', menu_type_id: '', price: '', unit_id: '', image: null, image_url: null, is_available: true });
+        const res = await fetch(url, { method, body: formData });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            return alert('Gagal menyimpan: ' + (err.error || 'Terjadi kesalahan'));
+        }
+        setShowModal(false); setEditItem(null); setForm({ code: '', name: '', description: '', menu_type_id: '', price: '', unit_id: '', image: null, image_url: null, is_available: true, is_promo: false, promo_price: '', discount_percent: '' });
         fetchData();
     };
 
@@ -58,7 +62,10 @@ function MenuList() {
             unit_id: item.unit_id || '',
             image: null,
             image_url: item.image_url,
-            is_available: item.is_available
+            is_available: item.is_available,
+            is_promo: item.is_promo || false,
+            promo_price: item.promo_price || '',
+            discount_percent: item.discount_percent > 0 ? item.discount_percent : ''
         });
         setShowModal(true);
     };
@@ -110,7 +117,7 @@ function MenuList() {
         <>
             <div className="page-header flex justify-between items-center">
                 <div><h1 className="page-title">Master Menu</h1><p className="page-subtitle">Kelola menu restoran</p></div>
-                <button className="btn btn-primary" onClick={() => { setEditItem(null); setForm({ code: '', name: '', description: '', menu_type_id: '', price: '', unit_id: '', image: null }); setShowModal(true); }}>+ Tambah Menu</button>
+                <button className="btn btn-primary" onClick={() => { setEditItem(null); setForm({ code: '', name: '', description: '', menu_type_id: '', price: '', unit_id: '', image: null, is_promo: false, promo_price: '', discount_percent: '' }); setShowModal(true); }}>+ Tambah Menu</button>
             </div>
             <div className="page-content">
                 <div className="card mb-lg">
@@ -135,6 +142,8 @@ function MenuList() {
                                     <th onClick={() => handleSort('name')} style={{ cursor: 'pointer' }}>Nama <SortIcon column="name" /></th>
                                     <th onClick={() => handleSort('type_name')} style={{ cursor: 'pointer' }}>Tipe <SortIcon column="type_name" /></th>
                                     <th onClick={() => handleSort('price')} style={{ cursor: 'pointer' }}>Harga <SortIcon column="price" /></th>
+                                    <th>Diskon</th>
+                                    <th>Promo</th>
                                     <th>Satuan</th>
                                     <th onClick={() => handleSort('is_available')} style={{ cursor: 'pointer' }}>Status <SortIcon column="is_available" /></th>
                                     <th>Aksi</th>
@@ -147,13 +156,26 @@ function MenuList() {
                                         <td><code>{m.code}</code></td>
                                         <td><strong>{m.name}</strong><br /><small className="text-muted">{m.description}</small></td>
                                         <td><span className="badge badge-secondary">{m.type_name || '-'}</span></td>
-                                        <td>{formatCurrency(m.price)}</td>
+                                        <td>
+                                            {(() => {
+                                                const dp = parseFloat(m.discount_percent) || 0;
+                                                if (m.is_promo && m.promo_price) {
+                                                    return <div><span style={{ textDecoration: 'line-through', opacity: 0.5, fontSize: '0.85em' }}>{formatCurrency(m.price)}</span><br /><span style={{ color: '#ef4444', fontWeight: 600 }}>{formatCurrency(m.promo_price)}</span></div>;
+                                                } else if (dp > 0) {
+                                                    const discounted = parseFloat(m.price) * (1 - dp / 100);
+                                                    return <div><span style={{ textDecoration: 'line-through', opacity: 0.5, fontSize: '0.85em' }}>{formatCurrency(m.price)}</span><br /><span style={{ color: '#22c55e', fontWeight: 600 }}>{formatCurrency(discounted)}</span></div>;
+                                                }
+                                                return formatCurrency(m.price);
+                                            })()}
+                                        </td>
+                                        <td>{parseFloat(m.discount_percent) > 0 ? <span className="badge badge-success" style={{ fontSize: '0.75em' }}>{m.discount_percent}%</span> : <span className="text-muted">-</span>}</td>
+                                        <td>{m.is_promo ? <span className="badge badge-danger" style={{ fontSize: '0.75em' }}>🔥 PROMO</span> : <span className="text-muted">-</span>}</td>
                                         <td><span className="badge badge-secondary">{m.unit_name ? `${m.unit_name} (${m.unit_symbol})` : '-'}</span></td>
                                         <td><button className={`badge ${m.is_available ? 'badge-success' : 'badge-danger'}`} onClick={() => toggleAvailable(m)} style={{ cursor: 'pointer', border: 'none' }}>{m.is_available ? 'Tersedia' : 'Habis'}</button></td>
                                         <td><div className="flex gap-sm"><button className="btn btn-sm btn-secondary" onClick={() => handleEdit(m)}>Edit</button><button className="btn btn-sm btn-danger" onClick={() => handleDelete(m.id)}>Hapus</button></div></td>
                                     </tr>
                                 ))}
-                                {filteredMenus.length === 0 && <tr><td colSpan="8" className="text-center p-md">Tidak ada data menu</td></tr>}
+                                {filteredMenus.length === 0 && <tr><td colSpan="10" className="text-center p-md">Tidak ada data menu</td></tr>}
                             </tbody>
                         </table>
                     </div>
@@ -167,18 +189,38 @@ function MenuList() {
                         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
                             <div className="modal-body">
                                 <div className="grid-2">
-                                    <div className="form-group"><label className="form-label">Kode *</label><input className="form-input" value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} required /></div>
+                                    <div className="form-group"><label className="form-label">Kode *</label><input type="text" autoComplete="off" className="form-input" value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} required /></div>
                                     <div className="form-group"><label className="form-label">Tipe Menu</label><select className="form-input form-select" value={form.menu_type_id} onChange={e => setForm({ ...form, menu_type_id: e.target.value })}><option value="">-- Pilih --</option>{menuTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
                                 </div>
                                 <div className="form-group"><label className="form-label">Nama Menu *</label><input className="form-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></div>
                                 <div className="form-group"><label className="form-label">Deskripsi</label><textarea className="form-input form-textarea" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></div>
                                 <div className="form-group"><label className="form-label">Harga *</label><input type="number" className="form-input" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} required /></div>
+                                <div className="grid-2">
+                                    <div className="form-group">
+                                        <label className="form-label">🏷️ Diskon (%)</label>
+                                        <input type="number" className="form-input" placeholder="0" min="0" max="100" value={form.discount_percent} onChange={e => setForm({ ...form, discount_percent: e.target.value })} style={parseFloat(form.discount_percent) > 0 ? { borderColor: '#22c55e' } : {}} />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <input type="checkbox" checked={form.is_promo} onChange={e => setForm({ ...form, is_promo: e.target.checked })} style={{ width: 18, height: 18, accentColor: '#ef4444' }} />
+                                            🔥 Promo
+                                        </label>
+                                        {form.is_promo && (
+                                            <input type="number" className="form-input" placeholder="Harga Promo" value={form.promo_price} onChange={e => setForm({ ...form, promo_price: e.target.value })} style={{ marginTop: 8, borderColor: '#ef4444' }} />
+                                        )}
+                                    </div>
+                                </div>
                                 <div className="form-group"><label className="form-label">Satuan</label><select className="form-input form-select" value={form.unit_id} onChange={e => setForm({ ...form, unit_id: e.target.value })}><option value="">-- Pilih Satuan --</option>{units.map(u => <option key={u.id} value={u.id}>{u.name} ({u.symbol})</option>)}</select></div>
                                 <div className="form-group">
                                     <label className="form-label">Foto Menu</label>
                                     {form.image_url && (
-                                        <div style={{ marginBottom: 8, width: 100, height: 100, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border-primary)' }}>
-                                            <img src={form.image_url} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                        <div style={{ marginBottom: 8, position: 'relative', width: 100, height: 100 }}>
+                                            <div style={{ width: 100, height: 100, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border-primary)' }}>
+                                                <img src={form.image_url} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                            </div>
+                                            <button type="button" onClick={() => setForm({ ...form, image_url: null, image: null })}
+                                                style={{ position: 'absolute', top: -8, right: -8, width: 24, height: 24, borderRadius: '50%', background: '#ef4444', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 'bold', boxShadow: '0 2px 4px rgba(0,0,0,0.3)' }}
+                                                title="Hapus foto">✕</button>
                                         </div>
                                     )}
                                     <input type="file" className="form-input" accept="image/*" onChange={e => setForm({ ...form, image: e.target.files[0] })} />

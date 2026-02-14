@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../App';
 
 function OrderHistory() {
@@ -28,8 +28,11 @@ function OrderHistory() {
         fetchData();
     };
 
-    const formatCurrency = (v) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(v);
-    const formatDate = (d) => new Date(d).toLocaleString('id-ID');
+    const formatCurrency = useMemo(() => {
+        const fmt = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 });
+        return (v) => fmt.format(v);
+    }, []);
+    const formatDate = useMemo(() => (d) => new Date(d).toLocaleString('id-ID'), []);
 
     return (
         <>

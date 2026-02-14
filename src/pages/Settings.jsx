@@ -1,20 +1,29 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '../App';
 
 function Settings() {
+    const { settings: initialSettings, refreshSettings } = useAuth();
     const [settings, setSettings] = useState({});
     const [saving, setSaving] = useState(false);
 
-    useEffect(() => { fetchData(); }, []);
-    const fetchData = async () => { const res = await fetch('/api/settings'); setSettings(await res.json()); };
+    useEffect(() => {
+        setSettings(initialSettings);
+    }, [initialSettings]);
 
     const handleSave = async () => {
         setSaving(true);
-        await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) });
-        setSaving(false);
-        alert('Pengaturan berhasil disimpan!');
+        try {
+            await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) });
+            await refreshSettings(); // Update global context
+            alert('Pengaturan berhasil disimpan!');
+        } catch (err) {
+            alert('Gagal menyimpan pengaturan');
+        } finally {
+            setSaving(false);
+        }
     };
 
-    const updateSetting = (key, value) => setSettings({ ...settings, [key]: value });
+    const updateSetting = (key, value) => setSettings(prev => ({ ...prev, [key]: value }));
 
     return (
         <>
@@ -28,6 +37,8 @@ function Settings() {
                         <div className="card-header"><h3 className="card-title">🏪 Informasi Restoran</h3></div>
                         <div className="card-body">
                             <div className="form-group"><label className="form-label">Nama Restoran</label><input className="form-input" value={settings.restaurant_name || ''} onChange={e => updateSetting('restaurant_name', e.target.value)} /></div>
+                            <div className="form-group"><label className="form-label">Alamat</label><textarea className="form-input form-textarea" value={settings.restaurant_address || ''} onChange={e => updateSetting('restaurant_address', e.target.value)} rows={2} /></div>
+                            <div className="form-group"><label className="form-label">No. Telepon</label><input className="form-input" value={settings.restaurant_phone || ''} onChange={e => updateSetting('restaurant_phone', e.target.value)} /></div>
                             <div className="form-group"><label className="form-label">Footer Struk</label><textarea className="form-input form-textarea" value={settings.receipt_footer || ''} onChange={e => updateSetting('receipt_footer', e.target.value)} /></div>
 
                             <div className="form-group mt-md">

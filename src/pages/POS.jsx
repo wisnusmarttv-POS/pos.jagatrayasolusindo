@@ -1,7 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../App';
+
+// Memoized formatter — created once, reused forever
+const currencyFormatter = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 });
+const formatCurrency = (val) => currencyFormatter.format(val || 0);
 
 function POS() {
+    const { settings: ctxSettings, user } = useAuth();
     const [menuTypes, setMenuTypes] = useState([]);
     const [menus, setMenus] = useState([]);
     const [selectedType, setSelectedType] = useState(null);
@@ -16,78 +22,90 @@ function POS() {
     const [selectedDiscount, setSelectedDiscount] = useState(null);
     const [selectedPayment, setSelectedPayment] = useState(null);
     const [paymentAmount, setPaymentAmount] = useState('');
-    const [settings, setSettings] = useState({});
     const [loading, setLoading] = useState(false);
     const [showTableModal, setShowTableModal] = useState(false);
     const [currentFloor, setCurrentFloor] = useState(1);
+
+    // Use settings from AuthContext (already cached, no extra fetch)
+    const settings = ctxSettings;
 
     useEffect(() => {
         fetchData();
     }, []);
 
-    const fetchData = async () => {
-        const [typesRes, menusRes, tablesRes, pmRes, discRes, setRes] = await Promise.all([
+    const fetchData = useCallback(async () => {
+        const [typesRes, menusRes, tablesRes, pmRes, discRes] = await Promise.all([
             fetch('/api/menu-types'), fetch('/api/menus?available=true'), fetch('/api/tables'),
-            fetch('/api/payment-methods'), fetch('/api/discounts'), fetch('/api/settings')
+            fetch('/api/payment-methods'), fetch('/api/discounts')
         ]);
         setMenuTypes(await typesRes.json());
         setMenus(await menusRes.json());
         setTables(await tablesRes.json());
         setPaymentMethods(await pmRes.json());
         setDiscounts(await discRes.json());
-        setSettings(await setRes.json());
-    };
+    }, []);
 
-    const filteredMenus = selectedType ? menus.filter(m => m.menu_type_id === selectedType) : menus;
+    const filteredMenus = useMemo(() =>
+        selectedType ? menus.filter(m => m.menu_type_id === selectedType) : menus,
+        [menus, selectedType]
+    );
 
-    const addToCart = (menu) => {
+    const addToCart = useCallback((menu) => {
         if (!menu.is_available) return;
-        const existing = cart.find(c => c.menu_id === menu.id);
-        if (existing) {
-            setCart(cart.map(c => c.menu_id === menu.id ? { ...c, quantity: c.quantity + 1 } : c));
-        } else {
-            setCart([...cart, { menu_id: menu.id, menu_name: menu.name, unit_price: parseFloat(menu.price), quantity: 1 }]);
+        let effectivePrice = parseFloat(menu.price);
+        if (menu.is_promo && menu.promo_price) {
+            effectivePrice = parseFloat(menu.promo_price);
+        } else if (parseFloat(menu.discount_percent) > 0) {
+            effectivePrice = effectivePrice * (1 - parseFloat(menu.discount_percent) / 100);
         }
-    };
+        setCart(prev => {
+            const existing = prev.find(c => c.menu_id === menu.id);
+            if (existing) {
+                return prev.map(c => c.menu_id === menu.id ? { ...c, quantity: c.quantity + 1 } : c);
+            }
+            return [...prev, { menu_id: menu.id, menu_name: menu.name, unit_price: effectivePrice, quantity: 1 }];
+        });
+    }, []);
 
-    const updateQty = (menuId, delta) => {
-        setCart(cart.map(c => {
+    const updateQty = useCallback((menuId, delta) => {
+        setCart(prev => prev.map(c => {
             if (c.menu_id === menuId) {
                 const newQty = c.quantity + delta;
                 return newQty > 0 ? { ...c, quantity: newQty } : null;
             }
             return c;
         }).filter(Boolean));
-    };
+    }, []);
 
-    const removeItem = (menuId) => setCart(cart.filter(c => c.menu_id !== menuId));
+    const removeItem = useCallback((menuId) => setCart(prev => prev.filter(c => c.menu_id !== menuId)), []);
 
-    const subtotal = cart.reduce((sum, c) => sum + c.unit_price * c.quantity, 0);
-    const taxRate = parseFloat(settings.tax_rate) || 11;
-    const serviceRate = settings.enable_service_charge === 'true' ? (parseFloat(settings.service_charge_rate) || 0) : 0;
+    // Memoize all calculations
+    const { subtotal, taxRate, serviceRate, discountAmount, afterDiscount, serviceCharge, taxAmount, grandTotal, changeAmount } = useMemo(() => {
+        const sub = cart.reduce((sum, c) => sum + c.unit_price * c.quantity, 0);
+        const tr = parseFloat(settings.tax_rate) || 11;
+        const sr = settings.enable_service_charge === 'true' ? (parseFloat(settings.service_charge_rate) || 0) : 0;
 
-    let discountAmount = 0;
-    if (selectedDiscount) {
-        const disc = discounts.find(d => d.id === selectedDiscount);
-        if (disc && subtotal >= parseFloat(disc.min_order)) {
-            if (disc.type === 'percentage') {
-                discountAmount = subtotal * (parseFloat(disc.value) / 100);
-                if (disc.max_discount && discountAmount > parseFloat(disc.max_discount)) discountAmount = parseFloat(disc.max_discount);
-            } else {
-                discountAmount = parseFloat(disc.value);
+        let da = 0;
+        if (selectedDiscount) {
+            const disc = discounts.find(d => d.id === selectedDiscount);
+            if (disc && sub >= parseFloat(disc.min_order)) {
+                if (disc.type === 'percentage') {
+                    da = sub * (parseFloat(disc.value) / 100);
+                    if (disc.max_discount && da > parseFloat(disc.max_discount)) da = parseFloat(disc.max_discount);
+                } else {
+                    da = parseFloat(disc.value);
+                }
             }
         }
-    }
 
-    const afterDiscount = subtotal - discountAmount;
-    const serviceCharge = afterDiscount * (serviceRate / 100);
-    const taxAmount = (afterDiscount + serviceCharge) * (taxRate / 100);
-    const grandTotal = afterDiscount + serviceCharge + taxAmount;
-    const changeAmount = parseFloat(paymentAmount || 0) - grandTotal;
+        const ad = sub - da;
+        const sc = ad * (sr / 100);
+        const ta = (ad + sc) * (tr / 100);
+        const gt = ad + sc + ta;
+        const ca = parseFloat(paymentAmount || 0) - gt;
 
-    const formatCurrency = (val) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(val || 0);
-
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
+        return { subtotal: sub, taxRate: tr, serviceRate: sr, discountAmount: da, afterDiscount: ad, serviceCharge: sc, taxAmount: ta, grandTotal: gt, changeAmount: ca };
+    }, [cart, settings, selectedDiscount, discounts, paymentAmount]);
 
     const handleNewOrder = async () => {
         if (cart.length === 0) return alert('Keranjang kosong!');
@@ -172,13 +190,26 @@ function POS() {
                     </div>
                     <div className="menu-grid">
                         {filteredMenus.map(menu => (
-                            <div key={menu.id} className={`menu-item-card ${!menu.is_available ? 'unavailable' : ''}`} onClick={() => addToCart(menu)}>
+                            <div key={menu.id} className={`menu-item-card ${!menu.is_available ? 'unavailable' : ''}`} onClick={() => addToCart(menu)} style={{ position: 'relative' }}>
+                                {menu.is_promo && <div style={{ position: 'absolute', top: 8, right: 8, background: '#ef4444', color: '#fff', padding: '2px 8px', borderRadius: 12, fontSize: '0.7em', fontWeight: 700, zIndex: 1 }}>🔥 PROMO</div>}
+                                {!menu.is_promo && parseFloat(menu.discount_percent) > 0 && <div style={{ position: 'absolute', top: 8, right: 8, background: '#22c55e', color: '#fff', padding: '2px 8px', borderRadius: 12, fontSize: '0.7em', fontWeight: 700, zIndex: 1 }}>-{menu.discount_percent}%</div>}
                                 <div className="menu-item-image">
                                     {menu.image_url ? <img src={menu.image_url} alt={menu.name} /> : '🍽️'}
                                 </div>
                                 <div className="menu-item-info">
                                     <div className="menu-item-name">{menu.name}</div>
-                                    <div className="menu-item-price">{formatCurrency(menu.price)}</div>
+                                    <div className="menu-item-price">
+                                        {(() => {
+                                            const dp = parseFloat(menu.discount_percent) || 0;
+                                            if (menu.is_promo && menu.promo_price) {
+                                                return <><span style={{ textDecoration: 'line-through', opacity: 0.5, fontSize: '0.8em', marginRight: 6 }}>{formatCurrency(menu.price)}</span>{formatCurrency(menu.promo_price)}</>;
+                                            } else if (dp > 0) {
+                                                const discounted = parseFloat(menu.price) * (1 - dp / 100);
+                                                return <><span style={{ textDecoration: 'line-through', opacity: 0.5, fontSize: '0.8em', marginRight: 6 }}>{formatCurrency(menu.price)}</span>{formatCurrency(discounted)}</>;
+                                            }
+                                            return formatCurrency(menu.price);
+                                        })()}
+                                    </div>
                                 </div>
                             </div>
                         ))}

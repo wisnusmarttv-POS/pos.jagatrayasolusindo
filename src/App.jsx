@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext, lazy, Suspense } from 'react';
+import { useState, useEffect, createContext, useContext, lazy, Suspense, useMemo } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate, useLocation } from 'react-router-dom';
 
 // Auth Context (includes settings cache)
@@ -130,24 +130,25 @@ function Sidebar() {
     const location = useLocation();
     const navigate = useNavigate();
 
-    const navItems = [
+    const navItems = useMemo(() => [
         { path: '/', icon: '📊', label: 'Dashboard' },
         { path: '/pos', icon: '🛒', label: 'Kasir / POS' },
         { path: '/orders', icon: '📋', label: 'Riwayat Order' },
+        { path: '/sales-report', icon: '📄', label: 'Laporan Penjualan' },
         { path: '/tables', icon: '🪑', label: 'Meja' },
-    ];
+    ], []);
 
-    const masterItems = [
+    const masterItems = useMemo(() => [
         { path: '/menus', icon: '🍽️', label: 'Menu' },
         { path: '/menu-types', icon: '📂', label: 'Tipe Menu' },
         { path: '/units', icon: '⚖️', label: 'Satuan' },
         { path: '/discounts', icon: '🏷️', label: 'Diskon' },
-    ];
+    ], []);
 
-    const settingsItems = [
+    const settingsItems = useMemo(() => [
         { path: '/users', icon: '👥', label: 'Pengguna' },
         { path: '/settings', icon: '⚙️', label: 'Pengaturan' },
-    ];
+    ], []);
 
     const handleLogout = () => { logout(); navigate('/login'); };
 
@@ -214,7 +215,10 @@ function Dashboard() {
         fetch('/api/dashboard/stats').then(r => r.json()).then(setStats);
     }, []);
 
-    const formatCurrency = (val) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(val || 0);
+    const formatCurrency = useMemo(() => {
+        const fmt = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 });
+        return (val) => fmt.format(val || 0);
+    }, []);
 
     return (
         <>
@@ -278,6 +282,7 @@ const MenuTypeList = lazy(() => import('./pages/MenuTypeList.jsx'));
 const TableManagement = lazy(() => import('./pages/TableManagement.jsx'));
 const DiscountList = lazy(() => import('./pages/DiscountList.jsx'));
 const OrderHistory = lazy(() => import('./pages/OrderHistory.jsx'));
+const SalesReport = lazy(() => import('./pages/SalesReport.jsx'));
 const UserList = lazy(() => import('./pages/UserList.jsx'));
 const Settings = lazy(() => import('./pages/Settings.jsx'));
 const UnitManagement = lazy(() => import('./pages/UnitManagement.jsx'));
@@ -303,6 +308,7 @@ function App() {
                         <Route path="/tables" element={<ProtectedRoute><MainLayout><TableManagement /></MainLayout></ProtectedRoute>} />
                         <Route path="/discounts" element={<ProtectedRoute><MainLayout><DiscountList /></MainLayout></ProtectedRoute>} />
                         <Route path="/orders" element={<ProtectedRoute><MainLayout><OrderHistory /></MainLayout></ProtectedRoute>} />
+                        <Route path="/sales-report" element={<ProtectedRoute><MainLayout><SalesReport /></MainLayout></ProtectedRoute>} />
                         <Route path="/users" element={<ProtectedRoute><MainLayout><UserList /></MainLayout></ProtectedRoute>} />
                         <Route path="/settings" element={<ProtectedRoute><MainLayout><Settings /></MainLayout></ProtectedRoute>} />
                     </Routes>
