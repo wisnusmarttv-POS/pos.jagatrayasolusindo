@@ -235,6 +235,14 @@ async function initDatabase() {
             await client.query("ALTER TABLE tables ADD COLUMN IF NOT EXISTS position_y INT DEFAULT 0");
         }
 
+        // MIGRATION: Add unit_id column to menus
+        try {
+            await client.query("SELECT unit_id FROM menus LIMIT 1");
+        } catch (err) {
+            console.log('Adding unit_id column to menus...');
+            await client.query("ALTER TABLE menus ADD COLUMN IF NOT EXISTS unit_id INT REFERENCES units(id)");
+        }
+
         if (tableCheck.rows.length === 0) {
             await client.query(`
         INSERT INTO tables (table_number, capacity, location, floor, position_x, position_y) VALUES 
@@ -428,9 +436,10 @@ app.get('/api/menus', async (req, res) => {
     try {
         const { type_id, available } = req.query;
         let query = `
-      SELECT m.*, mt.name as type_name, mt.color as type_color 
+      SELECT m.*, mt.name as type_name, mt.color as type_color, u.name as unit_name, u.symbol as unit_symbol 
       FROM menus m 
       LEFT JOIN menu_types mt ON m.menu_type_id = mt.id 
+      LEFT JOIN units u ON m.unit_id = u.id 
       WHERE m.is_active = true
     `;
         const params = [];
@@ -454,9 +463,10 @@ app.get('/api/menus', async (req, res) => {
 app.get('/api/menus/all', async (req, res) => {
     try {
         const result = await pool.query(`
-      SELECT m.*, mt.name as type_name, mt.color as type_color 
+      SELECT m.*, mt.name as type_name, mt.color as type_color, u.name as unit_name, u.symbol as unit_symbol 
       FROM menus m 
       LEFT JOIN menu_types mt ON m.menu_type_id = mt.id 
+      LEFT JOIN units u ON m.unit_id = u.id 
       ORDER BY m.menu_type_id, m.name
     `);
         res.json(result.rows);
@@ -467,12 +477,12 @@ app.get('/api/menus/all', async (req, res) => {
 
 app.post('/api/menus', upload.single('image'), async (req, res) => {
     try {
-        const { code, name, description, menu_type_id, price } = req.body;
+        const { code, name, description, menu_type_id, price, unit_id } = req.body;
         const image_url = req.file ? `/uploads/${req.file.filename}` : null;
 
         const result = await pool.query(
-            'INSERT INTO menus (code, name, description, image_url, menu_type_id, price) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-            [code, name, description, image_url, menu_type_id, price]
+            'INSERT INTO menus (code, name, description, image_url, menu_type_id, price, unit_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *',
+            [code, name, description, image_url, menu_type_id, price, unit_id || null]
         );
         res.json(result.rows[0]);
     } catch (err) {
@@ -483,7 +493,7 @@ app.post('/api/menus', upload.single('image'), async (req, res) => {
 app.put('/api/menus/:id', upload.single('image'), async (req, res) => {
     try {
         const { id } = req.params;
-        const { code, name, description, menu_type_id, price, is_available, is_active } = req.body;
+        const { code, name, description, menu_type_id, price, is_available, is_active, unit_id } = req.body;
 
         let image_url = req.body.image_url;
         if (req.file) {
@@ -492,11 +502,11 @@ app.put('/api/menus/:id', upload.single('image'), async (req, res) => {
 
         const result = await pool.query(
             `UPDATE menus SET code = $1, name = $2, description = $3, image_url = $4, 
-       menu_type_id = $5, price = $6, is_available = $7, is_active = $8, updated_at = NOW() 
-       WHERE id = $9 RETURNING *`,
+       menu_type_id = $5, price = $6, is_available = $7, is_active = $8, unit_id = $9, updated_at = NOW() 
+       WHERE id = $10 RETURNING *`,
             [code, name, description, image_url, menu_type_id, price,
                 is_available !== undefined ? is_available : true,
-                is_active !== undefined ? is_active : true, id]
+                is_active !== undefined ? is_active : true, unit_id || null, id]
         );
         res.json(result.rows[0]);
     } catch (err) {

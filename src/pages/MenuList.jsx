@@ -3,9 +3,10 @@ import { useState, useEffect } from 'react';
 function MenuList() {
     const [menus, setMenus] = useState([]);
     const [menuTypes, setMenuTypes] = useState([]);
+    const [units, setUnits] = useState([]);
     const [showModal, setShowModal] = useState(false);
     const [editItem, setEditItem] = useState(null);
-    const [form, setForm] = useState({ code: '', name: '', description: '', menu_type_id: '', price: '', image: null, image_url: null, is_available: true });
+    const [form, setForm] = useState({ code: '', name: '', description: '', menu_type_id: '', price: '', unit_id: '', image: null, image_url: null, is_available: true });
     const [searchTerm, setSearchTerm] = useState('');
     const [sortConfig, setSortConfig] = useState({ key: 'name', direction: 'asc' });
 
@@ -13,7 +14,7 @@ function MenuList() {
 
     const fetchData = async () => {
         try {
-            const [menusRes, typesRes] = await Promise.all([fetch('/api/menus'), fetch('/api/menu-types')]);
+            const [menusRes, typesRes, unitsRes] = await Promise.all([fetch('/api/menus'), fetch('/api/menu-types'), fetch('/api/units')]);
             if (menusRes.ok) {
                 const menusData = await menusRes.json();
                 setMenus(Array.isArray(menusData) ? menusData : []);
@@ -24,6 +25,9 @@ function MenuList() {
 
             if (typesRes.ok) {
                 setMenuTypes(await typesRes.json());
+            }
+            if (unitsRes.ok) {
+                setUnits(await unitsRes.json());
             }
         } catch (err) {
             console.error('Error fetching data:', err);
@@ -39,7 +43,7 @@ function MenuList() {
         const url = editItem ? `/api/menus/${editItem.id}` : '/api/menus';
         const method = editItem ? 'PUT' : 'POST';
         await fetch(url, { method, body: formData });
-        setShowModal(false); setEditItem(null); setForm({ code: '', name: '', description: '', menu_type_id: '', price: '', image: null, image_url: null, is_available: true });
+        setShowModal(false); setEditItem(null); setForm({ code: '', name: '', description: '', menu_type_id: '', price: '', unit_id: '', image: null, image_url: null, is_available: true });
         fetchData();
     };
 
@@ -51,6 +55,7 @@ function MenuList() {
             description: item.description || '',
             menu_type_id: item.menu_type_id || '',
             price: item.price,
+            unit_id: item.unit_id || '',
             image: null,
             image_url: item.image_url,
             is_available: item.is_available
@@ -69,6 +74,7 @@ function MenuList() {
         formData.append('code', item.code); formData.append('name', item.name);
         formData.append('price', item.price); formData.append('is_available', !item.is_available);
         formData.append('menu_type_id', item.menu_type_id || '');
+        if (item.unit_id) formData.append('unit_id', item.unit_id);
         await fetch(`/api/menus/${item.id}`, { method: 'PUT', body: formData });
         fetchData();
     };
@@ -104,7 +110,7 @@ function MenuList() {
         <>
             <div className="page-header flex justify-between items-center">
                 <div><h1 className="page-title">Master Menu</h1><p className="page-subtitle">Kelola menu restoran</p></div>
-                <button className="btn btn-primary" onClick={() => { setEditItem(null); setForm({ code: '', name: '', description: '', menu_type_id: '', price: '', image: null }); setShowModal(true); }}>+ Tambah Menu</button>
+                <button className="btn btn-primary" onClick={() => { setEditItem(null); setForm({ code: '', name: '', description: '', menu_type_id: '', price: '', unit_id: '', image: null }); setShowModal(true); }}>+ Tambah Menu</button>
             </div>
             <div className="page-content">
                 <div className="card mb-lg">
@@ -129,6 +135,7 @@ function MenuList() {
                                     <th onClick={() => handleSort('name')} style={{ cursor: 'pointer' }}>Nama <SortIcon column="name" /></th>
                                     <th onClick={() => handleSort('type_name')} style={{ cursor: 'pointer' }}>Tipe <SortIcon column="type_name" /></th>
                                     <th onClick={() => handleSort('price')} style={{ cursor: 'pointer' }}>Harga <SortIcon column="price" /></th>
+                                    <th>Satuan</th>
                                     <th onClick={() => handleSort('is_available')} style={{ cursor: 'pointer' }}>Status <SortIcon column="is_available" /></th>
                                     <th>Aksi</th>
                                 </tr>
@@ -141,11 +148,12 @@ function MenuList() {
                                         <td><strong>{m.name}</strong><br /><small className="text-muted">{m.description}</small></td>
                                         <td><span className="badge badge-secondary">{m.type_name || '-'}</span></td>
                                         <td>{formatCurrency(m.price)}</td>
+                                        <td><span className="badge badge-secondary">{m.unit_name ? `${m.unit_name} (${m.unit_symbol})` : '-'}</span></td>
                                         <td><button className={`badge ${m.is_available ? 'badge-success' : 'badge-danger'}`} onClick={() => toggleAvailable(m)} style={{ cursor: 'pointer', border: 'none' }}>{m.is_available ? 'Tersedia' : 'Habis'}</button></td>
                                         <td><div className="flex gap-sm"><button className="btn btn-sm btn-secondary" onClick={() => handleEdit(m)}>Edit</button><button className="btn btn-sm btn-danger" onClick={() => handleDelete(m.id)}>Hapus</button></div></td>
                                     </tr>
                                 ))}
-                                {filteredMenus.length === 0 && <tr><td colSpan="7" className="text-center p-md">Tidak ada data menu</td></tr>}
+                                {filteredMenus.length === 0 && <tr><td colSpan="8" className="text-center p-md">Tidak ada data menu</td></tr>}
                             </tbody>
                         </table>
                     </div>
@@ -156,7 +164,7 @@ function MenuList() {
                 <div className="modal-overlay">
                     <div className="modal">
                         <div className="modal-header"><h3 className="modal-title">{editItem ? 'Edit Menu' : 'Tambah Menu'}</h3><button className="modal-close" onClick={() => setShowModal(false)}>✕</button></div>
-                        <form onSubmit={handleSubmit}>
+                        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
                             <div className="modal-body">
                                 <div className="grid-2">
                                     <div className="form-group"><label className="form-label">Kode *</label><input className="form-input" value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} required /></div>
@@ -165,6 +173,7 @@ function MenuList() {
                                 <div className="form-group"><label className="form-label">Nama Menu *</label><input className="form-input" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></div>
                                 <div className="form-group"><label className="form-label">Deskripsi</label><textarea className="form-input form-textarea" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></div>
                                 <div className="form-group"><label className="form-label">Harga *</label><input type="number" className="form-input" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} required /></div>
+                                <div className="form-group"><label className="form-label">Satuan</label><select className="form-input form-select" value={form.unit_id} onChange={e => setForm({ ...form, unit_id: e.target.value })}><option value="">-- Pilih Satuan --</option>{units.map(u => <option key={u.id} value={u.id}>{u.name} ({u.symbol})</option>)}</select></div>
                                 <div className="form-group">
                                     <label className="form-label">Foto Menu</label>
                                     {form.image_url && (

@@ -1,7 +1,7 @@
-import { useState, useEffect, createContext, useContext } from 'react';
+import { useState, useEffect, createContext, useContext, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Link, useNavigate, useLocation } from 'react-router-dom';
 
-// Auth Context
+// Auth Context (includes settings cache)
 const AuthContext = createContext(null);
 
 export function useAuth() {
@@ -10,6 +10,7 @@ export function useAuth() {
 
 function AuthProvider({ children }) {
     const [user, setUser] = useState(null);
+    const [settings, setSettings] = useState({});
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -18,8 +19,14 @@ function AuthProvider({ children }) {
         if (token && userData) {
             setUser(JSON.parse(userData));
         }
+        // Fetch settings once and cache in context
+        fetch('/api/settings').then(r => r.json()).then(setSettings).catch(() => { });
         setLoading(false);
     }, []);
+
+    const refreshSettings = () => {
+        fetch('/api/settings').then(r => r.json()).then(setSettings).catch(() => { });
+    };
 
     const login = async (username, password) => {
         const res = await fetch('/api/auth/login', {
@@ -44,7 +51,7 @@ function AuthProvider({ children }) {
     if (loading) return <div className="loading"><div className="loading-spinner"></div></div>;
 
     return (
-        <AuthContext.Provider value={{ user, login, logout }}>
+        <AuthContext.Provider value={{ user, login, logout, settings, refreshSettings }}>
             {children}
         </AuthContext.Provider>
     );
@@ -63,13 +70,8 @@ function Login() {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
-    const [settings, setSettings] = useState({});
-    const { login } = useAuth();
+    const { login, settings } = useAuth();
     const navigate = useNavigate();
-
-    useEffect(() => {
-        fetch('/api/settings').then(res => res.json()).then(setSettings).catch(err => console.error(err));
-    }, []);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -124,14 +126,9 @@ function Login() {
 
 // Sidebar Component
 function Sidebar() {
-    const { user, logout } = useAuth();
+    const { user, logout, settings } = useAuth();
     const location = useLocation();
     const navigate = useNavigate();
-    const [settings, setSettings] = useState({});
-
-    useEffect(() => {
-        fetch('/api/settings').then(res => res.json()).then(setSettings).catch(err => console.error(err));
-    }, []);
 
     const navItems = [
         { path: '/', icon: '📊', label: 'Dashboard' },
@@ -274,35 +271,42 @@ function MainLayout({ children }) {
     );
 }
 
-// Lazy load pages
-// Lazy load pages (standard imports for now)
-import POS from './pages/POS.jsx';
-import MenuList from './pages/MenuList.jsx';
-import MenuTypeList from './pages/MenuTypeList.jsx';
-import TableManagement from './pages/TableManagement.jsx';
-import DiscountList from './pages/DiscountList.jsx';
-import OrderHistory from './pages/OrderHistory.jsx';
-import UserList from './pages/UserList.jsx';
-import Settings from './pages/Settings.jsx';
-import UnitManagement from './pages/UnitManagement.jsx';
+// Lazy load pages — only load when navigated to
+const POS = lazy(() => import('./pages/POS.jsx'));
+const MenuList = lazy(() => import('./pages/MenuList.jsx'));
+const MenuTypeList = lazy(() => import('./pages/MenuTypeList.jsx'));
+const TableManagement = lazy(() => import('./pages/TableManagement.jsx'));
+const DiscountList = lazy(() => import('./pages/DiscountList.jsx'));
+const OrderHistory = lazy(() => import('./pages/OrderHistory.jsx'));
+const UserList = lazy(() => import('./pages/UserList.jsx'));
+const Settings = lazy(() => import('./pages/Settings.jsx'));
+const UnitManagement = lazy(() => import('./pages/UnitManagement.jsx'));
+
+const PageLoader = () => (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '50vh' }}>
+        <div className="loading-spinner"></div>
+    </div>
+);
 
 function App() {
     return (
         <BrowserRouter>
             <AuthProvider>
-                <Routes>
-                    <Route path="/login" element={<Login />} />
-                    <Route path="/" element={<ProtectedRoute><MainLayout><Dashboard /></MainLayout></ProtectedRoute>} />
-                    <Route path="/pos" element={<ProtectedRoute><POS /></ProtectedRoute>} />
-                    <Route path="/menus" element={<ProtectedRoute><MainLayout><MenuList /></MainLayout></ProtectedRoute>} />
-                    <Route path="/menu-types" element={<ProtectedRoute><MainLayout><MenuTypeList /></MainLayout></ProtectedRoute>} />
-                    <Route path="/units" element={<ProtectedRoute><MainLayout><UnitManagement /></MainLayout></ProtectedRoute>} />
-                    <Route path="/tables" element={<ProtectedRoute><MainLayout><TableManagement /></MainLayout></ProtectedRoute>} />
-                    <Route path="/discounts" element={<ProtectedRoute><MainLayout><DiscountList /></MainLayout></ProtectedRoute>} />
-                    <Route path="/orders" element={<ProtectedRoute><MainLayout><OrderHistory /></MainLayout></ProtectedRoute>} />
-                    <Route path="/users" element={<ProtectedRoute><MainLayout><UserList /></MainLayout></ProtectedRoute>} />
-                    <Route path="/settings" element={<ProtectedRoute><MainLayout><Settings /></MainLayout></ProtectedRoute>} />
-                </Routes>
+                <Suspense fallback={<PageLoader />}>
+                    <Routes>
+                        <Route path="/login" element={<Login />} />
+                        <Route path="/" element={<ProtectedRoute><MainLayout><Dashboard /></MainLayout></ProtectedRoute>} />
+                        <Route path="/pos" element={<ProtectedRoute><POS /></ProtectedRoute>} />
+                        <Route path="/menus" element={<ProtectedRoute><MainLayout><MenuList /></MainLayout></ProtectedRoute>} />
+                        <Route path="/menu-types" element={<ProtectedRoute><MainLayout><MenuTypeList /></MainLayout></ProtectedRoute>} />
+                        <Route path="/units" element={<ProtectedRoute><MainLayout><UnitManagement /></MainLayout></ProtectedRoute>} />
+                        <Route path="/tables" element={<ProtectedRoute><MainLayout><TableManagement /></MainLayout></ProtectedRoute>} />
+                        <Route path="/discounts" element={<ProtectedRoute><MainLayout><DiscountList /></MainLayout></ProtectedRoute>} />
+                        <Route path="/orders" element={<ProtectedRoute><MainLayout><OrderHistory /></MainLayout></ProtectedRoute>} />
+                        <Route path="/users" element={<ProtectedRoute><MainLayout><UserList /></MainLayout></ProtectedRoute>} />
+                        <Route path="/settings" element={<ProtectedRoute><MainLayout><Settings /></MainLayout></ProtectedRoute>} />
+                    </Routes>
+                </Suspense>
             </AuthProvider>
         </BrowserRouter>
     );

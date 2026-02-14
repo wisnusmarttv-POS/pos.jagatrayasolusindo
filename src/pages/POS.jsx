@@ -301,59 +301,73 @@ function POS() {
                 </div>
             )}
 
-            {showTableModal && (
-                <div className="modal-overlay">
-                    <div className="modal modal-lg" style={{ maxWidth: '800px', height: '80vh' }}>
-                        <div className="modal-header">
-                            <h3 className="modal-title">Pilih Meja</h3>
-                            <button className="modal-close" onClick={() => setShowTableModal(false)}>✕</button>
-                        </div>
-                        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                            <div className="flex gap-md mb-md justify-center">
-                                <button className={`btn btn-sm ${currentFloor === 1 ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setCurrentFloor(1)}>Lantai 1</button>
-                                <button className={`btn btn-sm ${currentFloor === 2 ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setCurrentFloor(2)}>Lantai 2</button>
+            {showTableModal && (() => {
+                const floorTables = tables.filter(t => t.is_active && (t.floor || 1) === currentFloor);
+                const tableSize = 110;
+                const padding = 20;
+                const maxX = floorTables.reduce((max, t) => Math.max(max, (t.position_x || 0) + tableSize + padding), 400);
+                const maxY = floorTables.reduce((max, t) => Math.max(max, (t.position_y || 0) + tableSize + padding), 400);
+                return (
+                    <div className="modal-overlay">
+                        <div className="modal modal-lg" style={{ width: '100vw', height: '100vh', maxWidth: '100vw', maxHeight: '100vh', margin: 0, borderRadius: 0, display: 'flex', flexDirection: 'column' }}>
+                            <div className="modal-header">
+                                <h3 className="modal-title">Pilih Meja</h3>
+                                <button className="modal-close" onClick={() => setShowTableModal(false)}>✕</button>
                             </div>
-                            <div style={{
-                                position: 'relative',
-                                flex: 1,
-                                background: 'var(--bg-tertiary)',
-                                border: '1px dashed var(--border-primary)',
-                                borderRadius: '1rem',
-                                overflow: 'hidden'
-                            }}>
-                                {tables.filter(t => t.is_active && (t.floor || 1) === currentFloor).map(t => (
-                                    <div
-                                        key={t.id}
-                                        className={`table-card ${t.status}`}
-                                        style={{
-                                            position: 'absolute',
-                                            left: t.position_x || 0,
-                                            top: t.position_y || 0,
-                                            width: 120,
-                                            height: 120,
-                                            cursor: t.status === 'occupied' ? 'not-allowed' : 'pointer',
-                                            border: selectedTable === t.id ? '3px solid var(--primary-500)' : '',
-                                            transform: 'scale(0.8)'
-                                        }}
-                                        onClick={() => {
-                                            if (t.status !== 'occupied') {
-                                                setSelectedTable(t.id);
-                                                setShowTableModal(false);
-                                            }
-                                        }}
-                                    >
-                                        <div className="table-number" style={{ fontSize: '1.5rem' }}>{t.table_number}</div>
-                                        <div className="table-capacity">👥 {t.capacity}</div>
-                                        <span className={`table-status badge ${t.status === 'available' ? 'badge-success' : t.status === 'occupied' ? 'badge-danger' : 'badge-warning'}`} style={{ fontSize: '0.6rem' }}>
-                                            {t.status === 'available' ? 'Kosong' : t.status === 'occupied' ? 'Terisi' : 'Reserved'}
-                                        </span>
+                            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+                                <div className="flex gap-md mb-md justify-center" style={{ flexShrink: 0 }}>
+                                    <button className={`btn btn-sm ${currentFloor === 1 ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setCurrentFloor(1)}>Lantai 1</button>
+                                    <button className={`btn btn-sm ${currentFloor === 2 ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setCurrentFloor(2)}>Lantai 2</button>
+                                </div>
+                                <div style={{
+                                    flex: 1,
+                                    background: 'var(--bg-tertiary)',
+                                    border: '1px dashed var(--border-primary)',
+                                    borderRadius: '1rem',
+                                    overflow: 'auto',
+                                    minHeight: 0
+                                }}>
+                                    <div style={{
+                                        position: 'relative',
+                                        minWidth: maxX,
+                                        minHeight: maxY,
+                                        width: '100%',
+                                        height: '100%'
+                                    }}>
+                                        {floorTables.map(t => (
+                                            <div
+                                                key={t.id}
+                                                className={`table-card ${t.status}`}
+                                                style={{
+                                                    position: 'absolute',
+                                                    left: t.position_x || 0,
+                                                    top: t.position_y || 0,
+                                                    width: tableSize,
+                                                    height: tableSize,
+                                                    cursor: t.status === 'occupied' ? 'not-allowed' : 'pointer',
+                                                    border: selectedTable === t.id ? '3px solid var(--primary-500)' : ''
+                                                }}
+                                                onClick={() => {
+                                                    if (t.status !== 'occupied') {
+                                                        setSelectedTable(t.id);
+                                                        setShowTableModal(false);
+                                                    }
+                                                }}
+                                            >
+                                                <div className="table-number" style={{ fontSize: '1.3rem' }}>{t.table_number}</div>
+                                                <div className="table-capacity">👥 {t.capacity}</div>
+                                                <span className={`table-status badge ${t.status === 'available' ? 'badge-success' : t.status === 'occupied' ? 'badge-danger' : 'badge-warning'}`} style={{ fontSize: '0.6rem' }}>
+                                                    {t.status === 'available' ? 'Kosong' : t.status === 'occupied' ? 'Terisi' : 'Reserved'}
+                                                </span>
+                                            </div>
+                                        ))}
                                     </div>
-                                ))}
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
         </>
     );
 }
