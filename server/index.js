@@ -803,8 +803,9 @@ async function generateOrderNumber() {
 // Daily Sales Report API
 app.get('/api/reports/daily-sales', async (req, res) => {
     try {
-        const { date } = req.query;
-        const reportDate = date || new Date().toISOString().split('T')[0];
+        const { startDate, endDate, date } = req.query;
+        const start = startDate || date || new Date().toISOString().split('T')[0];
+        const end = endDate || start;
 
         // Summary totals
         const summaryResult = await pool.query(`
@@ -816,8 +817,8 @@ app.get('/api/reports/daily-sales', async (req, res) => {
                 COALESCE(SUM(tax_amount), 0) as total_tax,
                 COALESCE(SUM(service_charge), 0) as total_service
             FROM orders 
-            WHERE DATE(order_date) = $1 AND status = 'paid'
-        `, [reportDate]);
+            WHERE DATE(order_date) BETWEEN $1 AND $2 AND status = 'paid'
+        `, [start, end]);
 
         // Per payment method breakdown
         const paymentResult = await pool.query(`
@@ -827,10 +828,10 @@ app.get('/api/reports/daily-sales', async (req, res) => {
                 COALESCE(SUM(o.grand_total), 0) as total
             FROM orders o
             LEFT JOIN payment_methods pm ON o.payment_method_id = pm.id
-            WHERE DATE(o.order_date) = $1 AND o.status = 'paid'
+            WHERE DATE(o.order_date) BETWEEN $1 AND $2 AND o.status = 'paid'
             GROUP BY pm.name
             ORDER BY total DESC
-        `, [reportDate]);
+        `, [start, end]);
 
         // Per order type breakdown
         const orderTypeResult = await pool.query(`
@@ -839,10 +840,10 @@ app.get('/api/reports/daily-sales', async (req, res) => {
                 COUNT(*) as count,
                 COALESCE(SUM(grand_total), 0) as total
             FROM orders 
-            WHERE DATE(order_date) = $1 AND status = 'paid'
+            WHERE DATE(order_date) BETWEEN $1 AND $2 AND status = 'paid'
             GROUP BY order_type
             ORDER BY total DESC
-        `, [reportDate]);
+        `, [start, end]);
 
         // Individual orders list
         const ordersResult = await pool.query(`
@@ -853,12 +854,14 @@ app.get('/api/reports/daily-sales', async (req, res) => {
             LEFT JOIN payment_methods pm ON o.payment_method_id = pm.id
             LEFT JOIN users u ON o.user_id = u.id
             LEFT JOIN tables t ON o.table_id = t.id
-            WHERE DATE(o.order_date) = $1 AND o.status = 'paid'
+            WHERE DATE(o.order_date) BETWEEN $1 AND $2 AND o.status = 'paid'
             ORDER BY o.order_date ASC
-        `, [reportDate]);
+        `, [start, end]);
 
         res.json({
-            date: reportDate,
+            startDate: start,
+            endDate: end,
+            date: start,
             summary: summaryResult.rows[0],
             payment_breakdown: paymentResult.rows,
             order_type_breakdown: orderTypeResult.rows,

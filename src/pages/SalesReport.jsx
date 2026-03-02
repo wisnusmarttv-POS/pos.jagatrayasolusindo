@@ -3,7 +3,8 @@ import { useAuth } from '../App';
 
 function SalesReport() {
     const { settings } = useAuth();
-    const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+    const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+    const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
     const [report, setReport] = useState(null);
     const [loading, setLoading] = useState(false);
 
@@ -23,7 +24,7 @@ function SalesReport() {
     const fetchReport = async () => {
         setLoading(true);
         try {
-            const res = await fetch(`/api/reports/daily-sales?date=${date}`);
+            const res = await fetch(`/api/reports/daily-sales?startDate=${startDate}&endDate=${endDate}`);
             const data = await res.json();
             setReport(data);
         } catch (err) {
@@ -32,7 +33,7 @@ function SalesReport() {
         setLoading(false);
     };
 
-    useEffect(() => { fetchReport(); }, [date]);
+    useEffect(() => { fetchReport(); }, [startDate, endDate]);
 
     const handlePrint = () => {
         const printContent = document.getElementById('sales-report-print');
@@ -40,7 +41,7 @@ function SalesReport() {
         printWindow.document.write(`
             <html>
             <head>
-                <title>Laporan Penjualan - ${formatDateDisplay(date)}</title>
+                <title>Laporan Penjualan - ${startDate === endDate ? formatDateDisplay(startDate) : `${formatDateDisplay(startDate)} - ${formatDateDisplay(endDate)}`}</title>
                 <style>
                     * { margin: 0; padding: 0; box-sizing: border-box; }
                     body { font-family: 'Courier New', monospace; font-size: 11px; padding: 10px; max-width: 300px; margin: 0 auto; }
@@ -81,7 +82,10 @@ function SalesReport() {
             <div className="page-header flex justify-between items-center">
                 <div><h1 className="page-title">📄 Laporan Penjualan</h1><p className="page-subtitle">Laporan harian rinci per metode pembayaran</p></div>
                 <div className="flex gap-sm items-center">
-                    <input type="date" className="form-input" value={date} onChange={e => setDate(e.target.value)} style={{ width: 200 }} />
+                    <span className="text-muted" style={{ fontSize: '0.9rem', marginRight: '4px' }}>Dari:</span>
+                    <input type="date" className="form-input" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ width: 130 }} />
+                    <span className="text-muted" style={{ fontSize: '0.9rem', margin: '0 4px 0 8px' }}>Sampai:</span>
+                    <input type="date" className="form-input" value={endDate} onChange={e => setEndDate(e.target.value)} style={{ width: 130 }} />
                     <button className="btn btn-primary" onClick={handlePrint} disabled={!report || parseInt(summary.total_orders) === 0}>🖨️ Cetak</button>
                 </div>
             </div>
@@ -93,7 +97,7 @@ function SalesReport() {
                     <div className="card" style={{ padding: '3rem', textAlign: 'center' }}>
                         <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>📭</div>
                         <h3>Tidak ada transaksi</h3>
-                        <p className="text-muted">Belum ada transaksi pada {formatDateDisplay(date)}</p>
+                        <p className="text-muted">Belum ada transaksi pada {startDate === endDate ? formatDateDisplay(startDate) : `${formatDateDisplay(startDate)} - ${formatDateDisplay(endDate)}`}</p>
                     </div>
                 ) : (
                     <>
@@ -218,7 +222,7 @@ function SalesReport() {
                     <div>{settings.restaurant_phone ? `Telp: ${settings.restaurant_phone}` : ''}</div>
                     <div className="separator"></div>
                     <div className="bold" style={{ fontSize: '13px' }}>LAPORAN PENJUALAN HARIAN</div>
-                    <div>{formatDateDisplay(date)}</div>
+                    <div>{startDate === endDate ? formatDateDisplay(startDate) : `${formatDateDisplay(startDate)} - ${formatDateDisplay(endDate)}`}</div>
                     <div className="double-sep"></div>
                 </div>
 
